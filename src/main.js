@@ -10,7 +10,10 @@ import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog
 import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
 import { Player } from './player/player.js';
+import { CompanionManager } from './player/companions.js';
+import { WEAPONS } from './player/weapons.js';
 import { ThirdPersonCamera } from './player/camera.js';
+import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import { initHUD, setMP, toggleInventory, setActiveWeapon } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
@@ -36,6 +39,37 @@ async function boot() {
   const drops = new DropManager(scene, true);
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
+  const companions = new CompanionManager(scene, shadow);
+  const party = [player, ...companions.list];
+
+  scene.cameraToUseForPointers = camRig.cam;
+
+  const marker = MeshBuilder.CreateDisc('moveMarker', { radius: 0.5, tessellation: 24 }, scene);
+  const markerMat = new StandardMaterial('markerMat', scene);
+  markerMat.emissiveColor = Color3.FromHexString('#e8c25f');
+  markerMat.disableLighting = true;
+  markerMat.alpha = 0.55;
+  marker.material = markerMat;
+  marker.rotation.x = Math.PI / 2;
+  marker.setEnabled(false);
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    if (isDialogOpen() || isShopOpen()) return;
+    const pick = scene.pick(scene.pointerX, scene.pointerY);
+    if (!pick || !pick.hit) return;
+    const mon = pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.monster;
+    if (mon && !mon.dead) {
+      player.attackTarget = mon;
+      player.moveTarget = null;
+      marker.setEnabled(false);
+    } else if (pick.pickedPoint) {
+      player.attackTarget = null;
+      player.moveTarget = { x: pick.pickedPoint.x, z: pick.pickedPoint.z };
+      marker.position.set(pick.pickedPoint.x, 0.06, pick.pickedPoint.z);
+      marker.setEnabled(true);
+    }
+  });
   player.onKill = (m) => {
     const cfg = m.cfg;
     addXp(cfg.xp);
@@ -84,18 +118,46 @@ async function boot() {
       talkHint.style.display = 'none';
     }
 
-    if (!talking) player.tryAttack(input, monsters.list, camRig);
+    const at = player.attackTarget;
+    if (at) {
+      if (at.dead) {
+        player.attackTarget = null;
+      } else {
+        const w = WEAPONS[player.weapon];
+        const d = Math.hypot(
+          at.group.position.x - player.group.position.x,
+          at.group.position.z - player.group.position.z
+        );
+        const reach = w.type === 'ranged' ? Math.min(w.range, 16) : w.range * 0.8;
+        if (d > reach) {
+          player.moveTarget = { x: at.group.position.x, z: at.group.position.z };
+        } else {
+          player.moveTarget = null;
+          if (player.attackCd <= 0) input.queueAttack();
+        }
+      }
+    }
+    if (!player.moveTarget) marker.setEnabled(false);
+
+    if (!talking) {
+      player.tryAttack(
+        input, monsters.list, camRig,
+        at && !at.dead ? at.group.position : null
+      );
+    }
     player.update(delta, talking ? idleInput : input, camRig);
 
-    monsters.update(delta, player);
-    projectiles.update(delta, monsters.list, (m, killed) => {
+    const handleHit = (m, killed) => {
       if (killed) {
         sfx.kill();
         if (player.onKill) player.onKill(m);
       } else {
         sfx.hit();
       }
-    });
+    };
+    monsters.update(delta, party);
+    companions.update(delta, player, monsters.list, obstacles, projectiles, handleHit);
+    projectiles.update(delta, monsters.list, handleHit);
     npcs.update(delta, player);
     drops.update(delta, player, () => {
       addJelly(1);
@@ -107,6 +169,7 @@ async function boot() {
 
   window.__game = {
     engine, scene, player, camRig, minimap, input, monsters, npcs, drops, projectiles, obstacles,
+    companions, party, marker,
     stats,
     debug: { addGold, addJelly, addXp },
     dialog: { openDialog, advanceDialog, isDialogOpen },

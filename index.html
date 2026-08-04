@@ -3,112 +3,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>바람의 왕국 (dev)</title>
+  <title>퇴마전설풍: 귀곡의 초원 (dev)</title>
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }
     #app { position: fixed; inset: 0; }
     canvas { display: block; }
 
-    #hud { position: fixed; inset: 0; pointer-events: none; color: #4a3520; }
-    .panel { background: rgba(255, 248, 231, 0.88); border: 2px solid #b08945; border-radius: 10px; }
+    #hud { position: fixed; inset: 0; pointer-events: none; color: #e8dcc4; }
+    .panel { background: rgba(16, 18, 30, 0.85); border: 2px solid #c9a86a; border-radius: 10px; }
 
-    #status { position: absolute; top: 14px; left: 14px; padding: 10px 14px; min-width: 230px; }
-    #status .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
-    .bar { position: relative; height: 15px; border-radius: 8px; background: #e8dcc4; border: 1px solid #b08945; overflow: hidden; margin-top: 5px; }
+    #party { position: absolute; top: 14px; left: 14px; padding: 10px 12px; min-width: 250px; }
+    .prow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .prow:last-child { margin-bottom: 0; }
+    .portrait { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #c9a86a; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; flex: none; }
+    .p-ilim { background: #7a3b2e; color: #ffd9c4; }
+    .p-kusa { background: #2e3f7a; color: #c4d4ff; }
+    .p-rening { background: #2e6a3f; color: #c8f0c4; }
+    .pinfo { flex: 1; min-width: 0; }
+    .pname { font-size: 12px; margin-bottom: 3px; color: #e8dcc4; }
+    .pname b { color: #c9a86a; }
+    .bar { position: relative; height: 12px; border-radius: 6px; background: #2a2c3a; border: 1px solid #55492e; overflow: hidden; }
+    .bar.small { height: 8px; margin-top: 3px; }
     .bar .fill { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; transition: width 0.2s; }
-    #hpfill { background: linear-gradient(#f36c60, #d13b30); }
-    #mpfill { background: linear-gradient(#6fa8e8, #3a6fc4); }
-    .bar .txt { position: absolute; inset: 0; font-size: 10px; line-height: 15px; text-align: center; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
-
-    #hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; padding: 6px 14px; color: #6b5228; }
-
-    .bar.xp { height: 10px; }
-    #xpfill { background: linear-gradient(#f4d06f, #d9a520); }
-    .bar.xp .txt { font-size: 8px; line-height: 10px; }
-    #gold-row { margin-top: 6px; font-size: 12px; color: #6b5228; }
+    #hpfill { background: linear-gradient(#e05a4e, #a02c22); }
+    #comp1-hp { background: linear-gradient(#5a8ae0, #2c50a0); }
+    #comp2-hp { background: linear-gradient(#5ac07a, #2c7a46); }
+    #xpfill { background: linear-gradient(#e8c25f, #a8821f); }
+    .bar .txt { position: absolute; inset: 0; font-size: 9px; line-height: 12px; text-align: center; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
+    #gold-row { margin-top: 8px; font-size: 12px; color: #c9a86a; }
     #gold-row .coin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e8b939; border: 1px solid #a97c14; margin-right: 3px; vertical-align: -1px; }
-    #gold-row .invkey { display: inline-block; border: 1px solid #b08945; border-radius: 4px; padding: 0 4px; font-size: 10px; margin-left: 6px; }
+    #gold-row .invkey { display: inline-block; border: 1px solid #c9a86a; border-radius: 4px; padding: 0 4px; font-size: 10px; margin-left: 6px; color: #e8dcc4; }
 
+    #hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; padding: 6px 14px; color: #b8a888; }
+
+    #quickbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 8px; }
+    .slot { width: 44px; height: 44px; border: 2px solid #6a5c3a; border-radius: 8px; background: rgba(30, 32, 48, 0.8); position: relative; }
+    .slot span { position: absolute; top: 2px; left: 5px; font-size: 11px; color: #c9a86a; z-index: 1; }
+    .slot.active { border-color: #e8c25f; background: rgba(60, 52, 28, 0.9); box-shadow: 0 0 8px rgba(232, 194, 95, 0.5); }
     .slot-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-    .slot-count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 600; color: #4a3520; }
-    .slot-plus { position: absolute; right: 3px; top: 1px; font-size: 10px; font-weight: 700; color: #d85a30; z-index: 1; }
+    .slot-count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 600; color: #e8dcc4; }
+    .slot-plus { position: absolute; right: 3px; top: 1px; font-size: 10px; font-weight: 700; color: #e8c25f; z-index: 1; }
+
+    #minimap-frame { position: absolute; right: 10px; bottom: 10px; width: 200px; height: 200px; border: 3px solid #c9a86a; border-radius: 12px; box-shadow: 0 0 0 3px rgba(16, 18, 30, 0.85); }
+    #minimap-frame .label { position: absolute; top: -26px; right: 0; font-size: 12px; background: rgba(16, 18, 30, 0.85); border: 1px solid #c9a86a; border-radius: 6px; padding: 1px 8px; color: #c9a86a; }
+
+    #talk-hint { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 6px 16px; color: #c9a86a; }
+    #talk-hint b { color: #e8c25f; }
+    #dialog { display: none; position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 90vw; padding: 14px 18px 12px; pointer-events: auto; cursor: pointer; }
+    #dialog-name { font-weight: 600; font-size: 14px; color: #e8c25f; margin-bottom: 6px; }
+    #dialog-text { font-size: 14px; line-height: 1.55; min-height: 44px; color: #e8dcc4; }
+    #dialog-next { font-size: 11px; color: #8a7a55; text-align: right; margin-top: 6px; }
 
     #shop { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 380px; max-width: 92vw; padding: 14px 16px; pointer-events: auto; }
-    .shop-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    #shop-close { border: 1px solid #b08945; background: transparent; border-radius: 6px; cursor: pointer; color: #8a6b3a; font-size: 12px; padding: 2px 8px; }
-    .shop-wallet { font-size: 13px; color: #6b5228; margin-bottom: 8px; }
-    .shop-sellbtn { width: 100%; border: 1.5px solid #b08945; background: rgba(255,255,255,0.6); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 13px; color: #4a3520; margin-bottom: 10px; }
+    .shop-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: #e8c25f; }
+    #shop-close { border: 1px solid #c9a86a; background: transparent; border-radius: 6px; cursor: pointer; color: #c9a86a; font-size: 12px; padding: 2px 8px; }
+    .shop-wallet { font-size: 13px; color: #b8a888; margin-bottom: 8px; }
+    .shop-sellbtn { width: 100%; border: 1.5px solid #c9a86a; background: rgba(60, 52, 28, 0.6); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 13px; color: #e8dcc4; margin-bottom: 10px; }
     .shop-sellbtn:disabled { opacity: 0.5; cursor: default; }
-    .shop-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #d9c9a3; border-radius: 8px; background: rgba(255,255,255,0.45); padding: 8px 10px; margin-bottom: 6px; }
+    .shop-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 8px 10px; margin-bottom: 6px; }
     .shop-w { display: flex; align-items: center; gap: 8px; font-size: 13px; }
     .shop-icon { font-size: 20px; }
-    .shop-name b { color: #d85a30; }
-    .shop-dmg { color: #6b5228; font-size: 12px; }
+    .shop-name b { color: #e8c25f; }
+    .shop-dmg { color: #b8a888; font-size: 12px; }
     .shop-action { display: flex; align-items: center; gap: 8px; }
-    .shop-cost { font-size: 12px; color: #8a6b3a; }
-    .shop-btn { border: 1.5px solid #b08945; background: #ffe2bd; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #4a3520; }
+    .shop-cost { font-size: 12px; color: #c9a86a; }
+    .shop-btn { border: 1.5px solid #c9a86a; background: #4a3f22; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #e8dcc4; }
     .shop-btn:disabled { opacity: 0.45; cursor: default; }
-    .shop-max { font-size: 12px; font-weight: 700; color: #a97c14; }
-    .shop-hint { font-size: 11px; color: #8a6b3a; text-align: center; margin-top: 4px; }
+    .shop-max { font-size: 12px; font-weight: 700; color: #e8c25f; }
+    .shop-hint { font-size: 11px; color: #8a7a55; text-align: center; margin-top: 4px; }
 
-    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #ffe98a; text-shadow: 0 2px 8px rgba(90, 60, 0, 0.8); opacity: 0; pointer-events: none; }
+    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); opacity: 0; pointer-events: none; }
     #levelup.show { animation: lvup 2.2s ease-out forwards; }
     @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
     #inventory { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; padding: 14px 16px; pointer-events: auto; }
-    .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; }
-    .inv-title span { color: #a97c14; }
+    .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; color: #e8c25f; }
+    .inv-title span { color: #c9a86a; }
     .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .inv-item { border: 1.5px solid #b08945; border-radius: 8px; background: rgba(255,255,255,0.5); padding: 8px; text-align: center; font-size: 12px; }
+    .inv-item { border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 8px; text-align: center; font-size: 12px; }
     .inv-icon { font-size: 24px; }
-    .inv-name { margin: 4px 0 2px; color: #4a3520; }
-    .inv-hint { margin-top: 10px; font-size: 11px; color: #8a6b3a; text-align: center; }
-
-    #quickbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 8px; }
-    .slot { width: 44px; height: 44px; border: 2px solid #b08945; border-radius: 8px; background: rgba(255, 248, 231, 0.72); position: relative; }
-    .slot span { position: absolute; top: 2px; left: 5px; font-size: 11px; color: #8a6b3a; z-index: 1; }
-    .slot.active { border-color: #d85a30; background: rgba(255, 226, 189, 0.9); box-shadow: 0 0 6px rgba(216, 90, 48, 0.55); }
-
-    #minimap-frame { position: absolute; right: 10px; bottom: 10px; width: 200px; height: 200px; border: 3px solid #b08945; border-radius: 12px; box-shadow: 0 0 0 3px rgba(255, 248, 231, 0.85); }
-    #minimap-frame .label { position: absolute; top: -26px; right: 0; font-size: 12px; background: rgba(255, 248, 231, 0.88); border: 1px solid #b08945; border-radius: 6px; padding: 1px 8px; color: #8a6b3a; }
-
-    #talk-hint { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 6px 16px; color: #6b5228; }
-    #talk-hint b { color: #4a3520; }
-    #dialog { display: none; position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 90vw; padding: 14px 18px 12px; pointer-events: auto; cursor: pointer; }
-    #dialog-name { font-weight: 600; font-size: 14px; color: #8a5636; margin-bottom: 6px; }
-    #dialog-text { font-size: 14px; line-height: 1.55; min-height: 44px; }
-    #dialog-next { font-size: 11px; color: #b08945; text-align: right; margin-top: 6px; }
+    .inv-name { margin: 4px 0 2px; color: #e8dcc4; }
+    .inv-hint { margin-top: 10px; font-size: 11px; color: #8a7a55; text-align: center; }
   </style>
 </head>
 <body>
   <div id="app"></div>
   <div id="hud">
-    <div id="status" class="panel">
-      <div class="name" id="char-name">모험가 (Lv.1)</div>
-      <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
-      <div class="bar"><div id="mpfill" class="fill"></div><div id="mptxt" class="txt"></div></div>
-      <div class="bar xp"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
+    <div id="party" class="panel">
+      <div class="prow">
+        <div class="portrait p-ilim">림</div>
+        <div class="pinfo">
+          <div class="pname" id="char-name"><b>이림</b> (Lv.1)</div>
+          <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
+          <div class="bar small"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
+        </div>
+      </div>
+      <div class="prow">
+        <div class="portrait p-kusa">쿠</div>
+        <div class="pinfo">
+          <div class="pname"><b>쿠사</b> — 술법사</div>
+          <div class="bar"><div id="comp1-hp" class="fill"></div><div id="comp1-txt" class="txt"></div></div>
+        </div>
+      </div>
+      <div class="prow">
+        <div class="portrait p-rening">레</div>
+        <div class="pinfo">
+          <div class="pname"><b>레닝</b> — 사수</div>
+          <div class="bar"><div id="comp2-hp" class="fill"></div><div id="comp2-txt" class="txt"></div></div>
+        </div>
+      </div>
       <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리</div>
     </div>
+    <div id="hint" class="panel">클릭 이동/공격 · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · F 공격 · 2/3/4 무기 · 1 혼백 · E 대화</div>
     <div id="levelup"></div>
     <div id="inventory" class="panel">
       <div class="inv-title">인벤토리 <span id="inv-gold">0 G</span></div>
       <div class="inv-grid">
-        <div class="inv-item"><div class="inv-icon">🍮</div><div class="inv-name">슬라임 젤리</div><div id="inv-jelly-count">x 0</div></div>
+        <div class="inv-item"><div class="inv-icon">🔮</div><div class="inv-name">혼백</div><div id="inv-jelly-count">x 0</div></div>
       </div>
-      <div class="inv-hint">퀵슬롯 1번 키로 젤리 사용 (HP +15)</div>
+      <div class="inv-hint">퀵슬롯 1번 키로 혼백 사용 (HP +15)</div>
     </div>
-    <div id="hint" class="panel">WASD 이동 · Shift 달리기 · Space 점프 · 클릭/F 공격 · 2/3/4 무기 교체 · 1 젤리 · E 대화 · I 인벤토리</div>
     <div id="quickbar" class="panel"></div>
     <div id="minimap-frame"><div class="label">미니맵</div></div>
     <div id="talk-hint" class="panel">E 대화하기</div>
     <div id="shop" class="panel">
-      <div class="shop-title">🛒 상인 메이의 노점 <button id="shop-close">✕</button></div>
-      <div class="shop-wallet"><span id="shop-gold">0 G</span> · <span id="shop-jelly">젤리 x 0</span></div>
-      <button id="shop-sell" class="shop-sellbtn">젤리 전부 팔기</button>
+      <div class="shop-title">🧧 무녀 소하의 부적방 <button id="shop-close">✕</button></div>
+      <div class="shop-wallet"><span id="shop-gold">0 G</span> · <span id="shop-jelly">혼백 x 0</span></div>
+      <button id="shop-sell" class="shop-sellbtn">혼백 전부 팔기</button>
       <div id="shop-rows"></div>
-      <div class="shop-hint">젤리와 골드로 무기를 강화하세요 (최대 +5)</div>
+      <div class="shop-hint">혼백과 골드로 무기에 신령한 기운을 불어넣으세요 (최대 +5)</div>
     </div>
     <div id="dialog" class="panel">
       <div id="dialog-name"></div>

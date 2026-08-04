@@ -16,7 +16,7 @@ function lambert(scene, name, hex) {
   return mat;
 }
 
-function makeNameLabel(scene, name) {
+export function makeNameLabel(scene, name) {
   const tex = new DynamicTexture('label-' + name, { width: 256, height: 64 }, scene, true);
   tex.hasAlpha = true;
   const g = tex.getContext();
@@ -102,28 +102,28 @@ export class NPCManager {
   constructor(scene, obstacles, shadow) {
     this.list = [
       new NPC(scene, shadow, {
-        name: '촌장 로한',
+        name: '도사 청운',
         role: 'elder',
-        color: '#6e5a9e',
+        color: '#4a5a8e',
         x: 5,
         z: -6,
         lines: [
-          '오오, 새로운 모험가로군! 바람의 왕국에 온 것을 환영하네.',
-          '요즘 초원에 슬라임이 부쩍 늘어서 마을 사람들이 걱정이 많아.',
-          '슬라임을 잡아 주면 경험치와 골드를 얻을 수 있을 걸세. 레벨이 오르면 더 강해지지!',
-          '몸이 위험해지면 잠시 쉬면 기력이 돌아온다네. 행운을 비네, 모험가여!'
+          '왔는가, 젊은 퇴마사여. 이 초원은 밤마다 원귀들이 떠도는 땅이라네.',
+          '원귀를 정화하면 혼백이 남지. 무녀 소하에게 가져가면 무기에 힘을 불어넣어 줄 걸세.',
+          '바깥 어둠 속에는 도깨비들이 웅크리고 있으니, 부적을 단단히 강화하고 나서게.',
+          '자네의 주먹과 검, 그리고 부적이 이 밤을 지킬 것이야. 무운을 비네.'
         ]
       }),
       new NPC(scene, shadow, {
-        name: '상인 메이',
+        name: '무녀 소하',
         role: 'merchant',
-        color: '#c4703f',
+        color: '#b85a7a',
         x: -6,
         z: -4,
         lines: [
-          '어서 오세요~ 떠돌이 상인 메이라고 해요.',
-          '슬라임이 떨어뜨리는 젤리를 모아 오시면 좋은 값에 쳐드릴게요.',
-          '언젠가 이 자리에 멋진 상점을 차릴 거예요. 그때 다시 만나요!'
+          '어서 오세요, 퇴마사님. 혼백을 가져오시면 힘으로 바꿔드릴게요.',
+          '정화한 혼백은 좋은 값에 사들이고 있어요.',
+          '무기에 신령한 기운을 불어넣는 것도 제 일이랍니다.'
         ]
       })
     ];

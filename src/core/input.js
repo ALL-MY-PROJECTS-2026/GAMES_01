@@ -1,8 +1,8 @@
 export class Input {
   constructor(canvas) {
+    this.canvas = canvas;
     this.keys = new Set();
-    this.yaw = 0;
-    this.pitch = 0.35;
+    this.yaw = Math.PI;
     this.zoomDelta = 0;
 
     this.attackQueued = false;
@@ -13,23 +13,16 @@ export class Input {
       this.attackQueued = true;
       this.attackQueuedT = performance.now();
     };
+    this.queueAttack = queueAttack;
+
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code);
       if (e.code === 'KeyF') queueAttack();
       if (e.code === 'KeyE') this.interactQueued = true;
     });
-    window.addEventListener('mousedown', (e) => {
-      if (document.pointerLockElement === canvas && e.button === 0) queueAttack();
-    });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
 
-    canvas.addEventListener('click', () => canvas.requestPointerLock());
-    window.addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement !== canvas) return;
-      this.yaw -= e.movementX * 0.0025;
-      this.pitch = Math.max(0.05, Math.min(1.2, this.pitch + e.movementY * 0.0025));
-    });
     window.addEventListener('wheel', (e) => {
       this.zoomDelta += Math.sign(e.deltaY);
     });

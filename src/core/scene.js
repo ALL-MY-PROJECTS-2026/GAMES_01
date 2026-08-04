@@ -9,7 +9,7 @@ import {
   ShadowGenerator
 } from '@babylonjs/core';
 
-const SKY = new Color4(0.75, 0.89, 0.97, 1);
+const SKY = new Color4(0.24, 0.27, 0.44, 1);
 
 export function createScene(container) {
   const canvas = document.createElement('canvas');
@@ -25,20 +25,21 @@ export function createScene(container) {
   scene.clearColor = SKY;
 
   scene.fogMode = Scene.FOGMODE_LINEAR;
-  scene.fogStart = 60;
-  scene.fogEnd = 180;
-  scene.fogColor = new Color3(0.75, 0.89, 0.97);
+  scene.fogStart = 40;
+  scene.fogEnd = 150;
+  scene.fogColor = new Color3(0.24, 0.27, 0.44);
 
   const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
-  hemi.intensity = 0.75;
-  hemi.diffuse = new Color3(0.85, 0.92, 1.0);
-  hemi.groundColor = new Color3(0.45, 0.62, 0.35);
+  hemi.intensity = 0.55;
+  hemi.diffuse = new Color3(0.55, 0.6, 0.85);
+  hemi.groundColor = new Color3(0.2, 0.32, 0.26);
 
-  const sun = new DirectionalLight('sun', new Vector3(-0.45, -1, -0.3), scene);
-  sun.position = new Vector3(40, 60, 20);
-  sun.intensity = 1.25;
-  sun.diffuse = new Color3(1.0, 0.95, 0.8);
-  sun.autoCalcShadowZBounds = true;
+  const moon = new DirectionalLight('moon', new Vector3(-0.45, -1, -0.3), scene);
+  moon.position = new Vector3(40, 60, 20);
+  moon.intensity = 0.95;
+  moon.diffuse = new Color3(0.75, 0.8, 1.0);
+  moon.autoCalcShadowZBounds = true;
+  const sun = moon;
 
   const shadow = new ShadowGenerator(2048, sun);
   shadow.usePercentageCloserFiltering = true;

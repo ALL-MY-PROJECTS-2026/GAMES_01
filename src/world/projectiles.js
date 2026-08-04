@@ -9,14 +9,22 @@ export class ProjectileManager {
     this.scene = scene;
     this.obstacles = obstacles;
     this.list = [];
-    this.mat = new StandardMaterial('bulletMat', scene);
-    this.mat.emissiveColor = Color3.FromHexString('#ffd666');
-    this.mat.disableLighting = true;
+    this.mats = {};
   }
 
-  spawn(origin, dir, damage, knock) {
+  _mat(color) {
+    if (!this.mats[color]) {
+      const m = new StandardMaterial('bulletMat' + color, this.scene);
+      m.emissiveColor = Color3.FromHexString(color);
+      m.disableLighting = true;
+      this.mats[color] = m;
+    }
+    return this.mats[color];
+  }
+
+  spawn(origin, dir, damage, knock, color = '#ffd666') {
     const mesh = MeshBuilder.CreateSphere('bullet', { diameter: 0.18, segments: 6 }, this.scene);
-    mesh.material = this.mat;
+    mesh.material = this._mat(color);
     mesh.applyFog = false;
     mesh.position.copyFrom(origin);
     mesh.scaling.set(1, 1, 2.6);

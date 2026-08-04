@@ -10,13 +10,13 @@ export function initHUD() {
     bar.appendChild(slot);
   }
   const s1 = document.getElementById('slot-1');
-  s1.innerHTML = `<span>1</span><div class="slot-icon">🍮</div><div class="slot-count" id="jelly-count">0</div>`;
-  s1.title = '슬라임 젤리 (HP +15)';
+  s1.innerHTML = `<span>1</span><div class="slot-icon">🔮</div><div class="slot-count" id="jelly-count">0</div>`;
+  s1.title = '혼백 (HP +15)';
 
   const weapons = [
-    [2, '👊', '펀치 — 빠른 기본 공격'],
-    [3, '🗡️', '검 — 넓은 범위, 강한 넉백'],
-    [4, '🔫', '총 — 원거리 연사']
+    [2, '👊', '권법 — 3단 콤보, 빠른 기본 공격'],
+    [3, '🗡️', '퇴마검 — 넓은 범위, 강한 넉백'],
+    [4, '🧧', '부적 — 원거리 연사']
   ];
   for (const [i, icon, title] of weapons) {
     const s = document.getElementById(`slot-${i}`);
@@ -50,8 +50,18 @@ export function setHP(cur, max) {
 }
 
 export function setMP(cur, max) {
-  document.getElementById('mpfill').style.width = `${(cur / max) * 100}%`;
+  const el = document.getElementById('mpfill');
+  if (!el) return;
+  el.style.width = `${(cur / max) * 100}%`;
   document.getElementById('mptxt').textContent = `MP ${cur} / ${max}`;
+}
+
+export function setPartyHP(idx, cur, max) {
+  const fill = document.getElementById(`comp${idx}-hp`);
+  const txt = document.getElementById(`comp${idx}-txt`);
+  if (!fill) return;
+  fill.style.width = `${Math.max(0, (cur / max) * 100)}%`;
+  txt.textContent = cur > 0 ? `${Math.ceil(cur)} / ${max}` : '기절';
 }
 
 export function setXP(cur, max) {
@@ -60,7 +70,7 @@ export function setXP(cur, max) {
 }
 
 export function setLevel(level) {
-  document.getElementById('char-name').textContent = `모험가 (Lv.${level})`;
+  document.getElementById('char-name').innerHTML = `<b>이림</b> (Lv.${level})`;
 }
 
 export function setGold(gold) {

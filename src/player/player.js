@@ -57,8 +57,11 @@ export class Player {
     this.lungeUntil = 0;
     this.comboStep = -1;
     this.comboTimer = 0;
-    this.weapon = 'punch';
+    this.weapon = 'sword';
     this.weaponMeshes = {};
+    this.moveTarget = null;
+    this.attackTarget = null;
+    this.dead = false;
     this.projectiles = null;
     this.speedFov = 0;
     this.onKill = null;
@@ -77,7 +80,7 @@ export class Player {
   }
 
   async _loadModel(shadow) {
-    const res = await SceneLoader.ImportMeshAsync('', '/models/', 'character.glb', this.scene);
+    const res = await SceneLoader.ImportMeshAsync('', 'models/', 'character.glb', this.scene);
     const rootMesh = res.meshes[0];
 
     this.model = new TransformNode('playerModel', this.scene);
@@ -185,14 +188,19 @@ export class Player {
     }
   }
 
-  tryAttack(input, monsters, camRig = null) {
+  tryAttack(input, monsters, camRig = null, facePoint = null) {
     if (this.attackCd > 0) return;
     if (!input.consumeAttack()) return;
 
     const w = WEAPONS[this.weapon];
     this.attackCd = w.cd;
 
-    if (camRig) {
+    if (facePoint) {
+      this.group.rotation.y = Math.atan2(
+        facePoint.x - this.group.position.x,
+        facePoint.z - this.group.position.z
+      );
+    } else if (camRig) {
       const f = camRig.flatForward();
       this.group.rotation.y = Math.atan2(f.x, f.z);
     }
@@ -298,6 +306,19 @@ export class Player {
     if (input.pressed('KeyS')) dir.subtractInPlace(fwd);
     if (input.pressed('KeyD')) dir.addInPlace(right);
     if (input.pressed('KeyA')) dir.subtractInPlace(right);
+
+    if (dir.lengthSquared() > 0) {
+      this.moveTarget = null;
+      this.attackTarget = null;
+    } else if (this.moveTarget) {
+      const mdx = this.moveTarget.x - this.group.position.x;
+      const mdz = this.moveTarget.z - this.group.position.z;
+      if (mdx * mdx + mdz * mdz < 0.16) {
+        this.moveTarget = null;
+      } else {
+        dir.copyFromFloats(mdx, 0, mdz);
+      }
+    }
 
     const moving = dir.lengthSquared() > 0;
     const running = input.pressed('ShiftLeft') || input.pressed('ShiftRight');

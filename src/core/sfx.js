@@ -62,7 +62,7 @@ export const sfx = {
   hurt() { tone(200, 0.16, 'sawtooth', 0.14, 90); }
 };
 
-const BGM_SEQ = [392, 440, 523, 587, 659, 587, 523, 440, 392, 523, 440, 349];
+const BGM_SEQ = [220, 261.6, 293.7, 349.2, 293.7, 261.6, 220, 174.6, 196, 220, 164.8, 196];
 
 export function startBgm() {
   if (bgmTimer) return;

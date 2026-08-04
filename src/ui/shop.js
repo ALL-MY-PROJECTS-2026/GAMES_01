@@ -26,9 +26,9 @@ export function closeShop() {
 
 export function renderShop() {
   document.getElementById('shop-gold').textContent = `${stats.gold.toLocaleString()} G`;
-  document.getElementById('shop-jelly').textContent = `젤리 x ${stats.items.jelly}`;
+  document.getElementById('shop-jelly').textContent = `혼백 x ${stats.items.jelly}`;
   document.getElementById('shop-sell').textContent =
-    `젤리 전부 팔기 (+${stats.items.jelly * JELLY_PRICE} G)`;
+    `혼백 전부 팔기 (+${stats.items.jelly * JELLY_PRICE} G)`;
   document.getElementById('shop-sell').disabled = stats.items.jelly <= 0;
 
   const rows = document.getElementById('shop-rows');
@@ -50,7 +50,7 @@ export function renderShop() {
       </div>
       <div class="shop-action">
         ${cost
-          ? `<span class="shop-cost">🍮${cost.jelly} · ${cost.gold}G</span>
+          ? `<span class="shop-cost">🔮${cost.jelly} · ${cost.gold}G</span>
              <button class="shop-btn" data-w="${key}" ${affordable ? '' : 'disabled'}>강화</button>`
           : `<span class="shop-max">MAX (+${MAX_UPGRADE})</span>`}
       </div>`;

@@ -15,9 +15,9 @@ export class DropManager {
   constructor(scene, physicsEnabled = true) {
     this.scene = scene;
     this.physicsEnabled = physicsEnabled;
-    this.mat = new StandardMaterial('jellyMat', scene);
-    this.mat.diffuseColor = Color3.FromHexString('#7ede5a');
-    this.mat.emissiveColor = Color3.FromHexString('#1d5c10');
+    this.mat = new StandardMaterial('soulMat', scene);
+    this.mat.diffuseColor = Color3.FromHexString('#9fd8ff');
+    this.mat.emissiveColor = Color3.FromHexString('#3a6ca8');
     this.mat.specularColor = new Color3(0, 0, 0);
     this.list = [];
   }

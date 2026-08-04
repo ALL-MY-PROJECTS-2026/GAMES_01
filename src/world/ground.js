@@ -25,9 +25,9 @@ export function resolveCollision(pos, radius, obstacles) {
 function makeGrassMaterial(scene) {
   const tex = new DynamicTexture('grassTex', 256, scene, true);
   const g = tex.getContext();
-  g.fillStyle = '#6fae4e';
+  g.fillStyle = '#3a6136';
   g.fillRect(0, 0, 256, 256);
-  const shades = ['#63a344', '#7abb5b', '#5d9c40', '#82c463', '#69ac49'];
+  const shades = ['#35603f', '#456f41', '#2f5a34', '#4a7a46', '#3a6538'];
   for (let i = 0; i < 4500; i++) {
     g.fillStyle = shades[(Math.random() * shades.length) | 0];
     g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
@@ -62,9 +62,9 @@ export function buildWorld(scene, shadow) {
   ground.material = makeGrassMaterial(scene);
   ground.receiveShadows = true;
 
-  const trunkMat = lambert(scene, 'trunk', '#8a5a3b');
-  const leafMat = lambert(scene, 'leaf', '#3e7a2a');
-  const rockMat = lambert(scene, 'rock', '#9a958a');
+  const trunkMat = lambert(scene, 'trunk', '#5a3b28');
+  const leafMat = lambert(scene, 'leaf', '#24492a');
+  const rockMat = lambert(scene, 'rock', '#6a675e');
 
   for (let i = 0; i < 34; i++) {
     const x = (Math.random() * 2 - 1) * (WORLD_HALF - 6);
