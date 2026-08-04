@@ -1,0 +1,335 @@
+import {
+  TransformNode,
+  MeshBuilder,
+  StandardMaterial,
+  Color3,
+  Vector3,
+  SceneLoader
+} from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
+import { WORLD_HALF, resolveCollision } from '../world/ground.js';
+import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
+import { setHP } from '../ui/hud.js';
+import { sfx } from '../core/sfx.js';
+
+const UP = new Vector3(0, 1, 0);
+const GRAVITY = 30;
+const JUMP_SPEED = 9.5;
+const LOOPING = new Set(['Idle', 'Walking', 'Running']);
+const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
+
+export class Player {
+  constructor(scene, obstacles = [], shadow = null) {
+    this.scene = scene;
+    this.obstacles = obstacles;
+    this.group = new TransformNode('player', scene);
+
+    this.placeholder = MeshBuilder.CreateCapsule(
+      'playerPh',
+      { height: 1.8, radius: 0.45 },
+      scene
+    );
+    const phMat = new StandardMaterial('phMat', scene);
+    phMat.diffuseColor = Color3.FromHexString('#6e9bd2');
+    this.placeholder.material = phMat;
+    this.placeholder.position.y = 0.95;
+    this.placeholder.parent = this.group;
+
+    this.walkSpeed = 7;
+    this.velY = 0;
+    this.onGround = true;
+    this.maxHp = 100;
+    this.hp = 100;
+    this.attackCd = 0;
+    this.lockTimer = 0;
+    this.punchClipDur = 0.85;
+    this.pendingHit = -1;
+    this.pendingList = null;
+    this.pendingWeapon = null;
+    this.currentLunge = 0;
+    this.lungeUntil = 0;
+    this.weapon = 'punch';
+    this.weaponMeshes = {};
+    this.projectiles = null;
+    this.speedFov = 0;
+    this.onKill = null;
+
+    this.groups = null;
+    this.currentAction = null;
+    this.currentName = '';
+
+    this.knockV = new Vector3(0, 0, 0);
+    this._dir = new Vector3(0, 0, 0);
+    this._right = new Vector3(0, 0, 0);
+    this._move = new Vector3(0, 0, 0);
+    this._face = new Vector3(0, 0, 0);
+
+    this._loadModel(shadow);
+  }
+
+  async _loadModel(shadow) {
+    const res = await SceneLoader.ImportMeshAsync('', '/models/', 'character.glb', this.scene);
+    const rootMesh = res.meshes[0];
+
+    this.model = new TransformNode('playerModel', this.scene);
+    this.model.parent = this.group;
+    rootMesh.parent = this.model;
+
+    const { min, max } = rootMesh.getHierarchyBoundingVectors(true);
+    const h = max.y - min.y;
+    const scale = 1.9 / h;
+    this.modelScale = scale;
+    this.model.scaling.setAll(scale);
+    this.model.position.y = -min.y * scale;
+
+    for (const m of res.meshes) {
+      if (shadow && m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
+    }
+
+    this.groups = {};
+    for (const g of res.animationGroups) {
+      g.stop();
+      this.groups[g.name] = g;
+      for (const ta of g.targetedAnimations) {
+        ta.animation.enableBlending = true;
+        ta.animation.blendingSpeed = 0.1;
+      }
+    }
+    const punch = this.groups.Punch;
+    if (punch) {
+      const anim = punch.targetedAnimations[0] ? punch.targetedAnimations[0].animation : null;
+      const fps = anim ? anim.framePerSecond : 60;
+      this.punchClipDur = (punch.to - punch.from) / fps;
+    }
+
+    this.placeholder.dispose();
+    this.placeholder = null;
+    this.play('Idle');
+
+    const hand =
+      this.scene.getTransformNodeByName('Hand.R') ||
+      this.scene.getTransformNodeByName('HandR') ||
+      this.scene.getTransformNodeByName('Hand.L') ||
+      this.scene.getTransformNodeByName('LowerArm.R');
+    const sword = makeSwordMesh(this.scene);
+    const gun = makeGunMesh(this.scene);
+    if (hand) {
+      const inv = 1 / scale;
+      for (const w of [sword, gun]) {
+        w.parent = hand;
+        w.scaling.setAll(inv);
+      }
+      sword.position.set(0, 0.25 / scale, 0);
+      sword.rotation.set(Math.PI / 2, 0, 0);
+      gun.position.set(0, 0.22 / scale, 0.05 / scale);
+    } else {
+      sword.parent = this.group;
+      gun.parent = this.group;
+      sword.position.set(0.5, 1.15, 0.15);
+      sword.rotation.z = -0.4;
+      gun.position.set(0.5, 1.2, 0.25);
+    }
+    sword.setEnabled(false);
+    gun.setEnabled(false);
+    this.weaponMeshes = { sword, gun };
+    this.setWeapon(this.weapon);
+  }
+
+  play(name, force = false, speedOverride = null) {
+    if (!this.groups) return;
+    const next = this.groups[name];
+    if (!next) return;
+    if (this.currentName === name && !force) return;
+
+    const speed = speedOverride !== null ? speedOverride : SPEEDS[name] || 1;
+    if (this.currentAction && this.currentAction !== next) this.currentAction.stop();
+    if (this.currentName === name && force) next.stop();
+    next.start(LOOPING.has(name), speed);
+    this.currentAction = next;
+    this.currentName = name;
+  }
+
+  setWeapon(key) {
+    if (!WEAPONS[key]) return false;
+    this.weapon = key;
+    if (this.weaponMeshes.sword) this.weaponMeshes.sword.setEnabled(key === 'sword');
+    if (this.weaponMeshes.gun) this.weaponMeshes.gun.setEnabled(key === 'gun');
+    return true;
+  }
+
+  takeDamage(amount, dir = null) {
+    this.hp = Math.max(0, this.hp - amount);
+    setHP(this.hp, this.maxHp);
+    sfx.hurt();
+    if (dir) {
+      this.knockV.copyFromFloats(dir.x, 0, dir.z);
+      this.knockV.scaleInPlace(6);
+    }
+    if (this.hp <= 0) {
+      this.group.position.set(0, 0, 0);
+      this.velY = 0;
+      this.knockV.setAll(0);
+      this.hp = this.maxHp;
+      setHP(this.hp, this.maxHp);
+    }
+  }
+
+  tryAttack(input, monsters, camRig = null) {
+    if (this.attackCd > 0) return;
+    if (!input.consumeAttack()) return;
+
+    const w = WEAPONS[this.weapon];
+    this.attackCd = w.cd;
+
+    if (camRig) {
+      const f = camRig.flatForward();
+      this.group.rotation.y = Math.atan2(f.x, f.z);
+    }
+    const face = this._face.copyFromFloats(
+      Math.sin(this.group.rotation.y),
+      0,
+      Math.cos(this.group.rotation.y)
+    );
+
+    this.play('Punch', true, w.animScale);
+
+    if (w.type === 'ranged') {
+      this.lockTimer = 0.14;
+      this.currentLunge = 0;
+      this.lungeUntil = 0;
+      sfx.shoot();
+      if (this.projectiles) {
+        const origin = this.group.position.clone();
+        origin.y += 1.15;
+        origin.x += face.x * 0.6;
+        origin.z += face.z * 0.6;
+        this.projectiles.spawn(origin, face.clone(), w.damage, w.knock);
+      }
+      this.knockV.x -= face.x * 0.9;
+      this.knockV.z -= face.z * 0.9;
+    } else {
+      this.lockTimer = this.punchClipDur / w.animScale;
+      this.currentLunge = w.lunge;
+      this.lungeUntil = this.lockTimer - 0.25;
+      this.pendingHit = w.hitDelay;
+      this.pendingList = monsters;
+      this.pendingWeapon = w;
+      if (this.weapon === 'sword') sfx.swing();
+      else sfx.punch();
+    }
+  }
+
+  _applyHit() {
+    const monsters = this.pendingList || [];
+    const w = this.pendingWeapon || WEAPONS.punch;
+    const fwd = this._face.copyFromFloats(
+      Math.sin(this.group.rotation.y),
+      0,
+      Math.cos(this.group.rotation.y)
+    );
+    for (const m of monsters) {
+      if (m.dead) continue;
+      const to = this._right.copyFrom(m.group.position).subtractInPlace(this.group.position);
+      to.y = 0;
+      const dist = to.length();
+      if (dist > w.range) continue;
+      if (dist > 0.4) {
+        to.normalize();
+        if (Vector3.Dot(to, fwd) < w.arcDot) continue;
+      }
+      const killed = m.takeDamage(w.damage, fwd, w.knock);
+      if (killed) {
+        sfx.kill();
+        if (this.onKill) this.onKill(m);
+      } else {
+        sfx.hit();
+      }
+    }
+  }
+
+  update(delta, input, camRig) {
+    if (this.pendingHit >= 0) {
+      this.pendingHit -= delta;
+      if (this.pendingHit < 0) this._applyHit();
+    }
+
+    const dir = this._dir.setAll(0);
+    const fwd = camRig.flatForward();
+    Vector3.CrossToRef(fwd, UP, this._right);
+    const right = this._right;
+
+    if (input.pressed('KeyW')) dir.addInPlace(fwd);
+    if (input.pressed('KeyS')) dir.subtractInPlace(fwd);
+    if (input.pressed('KeyD')) dir.addInPlace(right);
+    if (input.pressed('KeyA')) dir.subtractInPlace(right);
+
+    const moving = dir.lengthSquared() > 0;
+    const running = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
+    this.speedFov = moving && running && this.onGround ? 0.16 : 0;
+
+    const move = this._move.setAll(0);
+    if (moving) {
+      dir.normalize();
+      const run = running ? 2.1 : 1;
+      move.copyFrom(dir).scaleInPlace(this.walkSpeed * run * delta);
+      if (this.lockTimer > 0) move.scaleInPlace(0.45);
+
+      if (this.lockTimer <= 0) {
+        const target = Math.atan2(dir.x, dir.z);
+        let diff = target - this.group.rotation.y;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        this.group.rotation.y += diff * Math.min(1, delta * 16);
+      }
+    }
+
+    if (this.currentLunge > 0 && this.lockTimer > this.lungeUntil) {
+      const face = this._face.copyFromFloats(
+        Math.sin(this.group.rotation.y),
+        0,
+        Math.cos(this.group.rotation.y)
+      );
+      move.x += face.x * this.currentLunge * delta;
+      move.z += face.z * this.currentLunge * delta;
+    }
+
+    if (this.knockV.lengthSquared() > 0.02) {
+      move.x += this.knockV.x * delta;
+      move.z += this.knockV.z * delta;
+      this.knockV.scaleInPlace(Math.exp(-7 * delta));
+    }
+
+    if (this.onGround && input.pressed('Space')) {
+      this.velY = JUMP_SPEED;
+      this.onGround = false;
+      this.play('Jump', true);
+      sfx.jump();
+    }
+
+    const pos = this.group.position;
+    pos.x += move.x;
+    pos.z += move.z;
+    pos.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.x));
+    pos.z = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.z));
+    resolveCollision(pos, 0.5, this.obstacles);
+
+    if (!this.onGround) {
+      this.velY -= GRAVITY * delta;
+      pos.y += this.velY * delta;
+      if (pos.y <= 0) {
+        pos.y = 0;
+        this.velY = 0;
+        this.onGround = true;
+        sfx.land();
+      }
+    }
+
+    this.attackCd = Math.max(0, this.attackCd - delta);
+    this.lockTimer = Math.max(0, this.lockTimer - delta);
+
+    if (this.groups && this.onGround && this.lockTimer <= 0) {
+      if (moving && running) this.play('Running');
+      else if (moving) this.play('Walking');
+      else this.play('Idle');
+    }
+  }
+}

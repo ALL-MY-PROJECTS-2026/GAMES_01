@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>바람의 왕국 (dev)</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; }
+
+    #hud { position: fixed; inset: 0; pointer-events: none; color: #4a3520; }
+    .panel { background: rgba(255, 248, 231, 0.88); border: 2px solid #b08945; border-radius: 10px; }
+
+    #status { position: absolute; top: 14px; left: 14px; padding: 10px 14px; min-width: 230px; }
+    #status .name { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+    .bar { position: relative; height: 15px; border-radius: 8px; background: #e8dcc4; border: 1px solid #b08945; overflow: hidden; margin-top: 5px; }
+    .bar .fill { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; transition: width 0.2s; }
+    #hpfill { background: linear-gradient(#f36c60, #d13b30); }
+    #mpfill { background: linear-gradient(#6fa8e8, #3a6fc4); }
+    .bar .txt { position: absolute; inset: 0; font-size: 10px; line-height: 15px; text-align: center; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.55); }
+
+    #hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; padding: 6px 14px; color: #6b5228; }
+
+    .bar.xp { height: 10px; }
+    #xpfill { background: linear-gradient(#f4d06f, #d9a520); }
+    .bar.xp .txt { font-size: 8px; line-height: 10px; }
+    #gold-row { margin-top: 6px; font-size: 12px; color: #6b5228; }
+    #gold-row .coin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e8b939; border: 1px solid #a97c14; margin-right: 3px; vertical-align: -1px; }
+    #gold-row .invkey { display: inline-block; border: 1px solid #b08945; border-radius: 4px; padding: 0 4px; font-size: 10px; margin-left: 6px; }
+
+    .slot-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    .slot-count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 600; color: #4a3520; }
+
+    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #ffe98a; text-shadow: 0 2px 8px rgba(90, 60, 0, 0.8); opacity: 0; pointer-events: none; }
+    #levelup.show { animation: lvup 2.2s ease-out forwards; }
+    @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+    #inventory { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; padding: 14px 16px; pointer-events: auto; }
+    .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    .inv-title span { color: #a97c14; }
+    .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .inv-item { border: 1.5px solid #b08945; border-radius: 8px; background: rgba(255,255,255,0.5); padding: 8px; text-align: center; font-size: 12px; }
+    .inv-icon { font-size: 24px; }
+    .inv-name { margin: 4px 0 2px; color: #4a3520; }
+    .inv-hint { margin-top: 10px; font-size: 11px; color: #8a6b3a; text-align: center; }
+
+    #quickbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 8px; }
+    .slot { width: 44px; height: 44px; border: 2px solid #b08945; border-radius: 8px; background: rgba(255, 248, 231, 0.72); position: relative; }
+    .slot span { position: absolute; top: 2px; left: 5px; font-size: 11px; color: #8a6b3a; z-index: 1; }
+    .slot.active { border-color: #d85a30; background: rgba(255, 226, 189, 0.9); box-shadow: 0 0 6px rgba(216, 90, 48, 0.55); }
+
+    #minimap-frame { position: absolute; right: 10px; bottom: 10px; width: 200px; height: 200px; border: 3px solid #b08945; border-radius: 12px; box-shadow: 0 0 0 3px rgba(255, 248, 231, 0.85); }
+    #minimap-frame .label { position: absolute; top: -26px; right: 0; font-size: 12px; background: rgba(255, 248, 231, 0.88); border: 1px solid #b08945; border-radius: 6px; padding: 1px 8px; color: #8a6b3a; }
+
+    #talk-hint { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 6px 16px; color: #6b5228; }
+    #talk-hint b { color: #4a3520; }
+    #dialog { display: none; position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 90vw; padding: 14px 18px 12px; pointer-events: auto; cursor: pointer; }
+    #dialog-name { font-weight: 600; font-size: 14px; color: #8a5636; margin-bottom: 6px; }
+    #dialog-text { font-size: 14px; line-height: 1.55; min-height: 44px; }
+    #dialog-next { font-size: 11px; color: #b08945; text-align: right; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="hud">
+    <div id="status" class="panel">
+      <div class="name" id="char-name">모험가 (Lv.1)</div>
+      <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
+      <div class="bar"><div id="mpfill" class="fill"></div><div id="mptxt" class="txt"></div></div>
+      <div class="bar xp"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
+      <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리</div>
+    </div>
+    <div id="levelup"></div>
+    <div id="inventory" class="panel">
+      <div class="inv-title">인벤토리 <span id="inv-gold">0 G</span></div>
+      <div class="inv-grid">
+        <div class="inv-item"><div class="inv-icon">🍮</div><div class="inv-name">슬라임 젤리</div><div id="inv-jelly-count">x 0</div></div>
+      </div>
+      <div class="inv-hint">퀵슬롯 1번 키로 젤리 사용 (HP +15)</div>
+    </div>
+    <div id="hint" class="panel">WASD 이동 · Shift 달리기 · Space 점프 · 클릭/F 공격 · 2/3/4 무기 교체 · 1 젤리 · E 대화 · I 인벤토리</div>
+    <div id="quickbar" class="panel"></div>
+    <div id="minimap-frame"><div class="label">미니맵</div></div>
+    <div id="talk-hint" class="panel">E 대화하기</div>
+    <div id="dialog" class="panel">
+      <div id="dialog-name"></div>
+      <div id="dialog-text"></div>
+      <div id="dialog-next"></div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
