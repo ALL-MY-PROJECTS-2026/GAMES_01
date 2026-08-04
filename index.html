@@ -32,6 +32,25 @@
 
     .slot-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
     .slot-count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 600; color: #4a3520; }
+    .slot-plus { position: absolute; right: 3px; top: 1px; font-size: 10px; font-weight: 700; color: #d85a30; z-index: 1; }
+
+    #shop { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 380px; max-width: 92vw; padding: 14px 16px; pointer-events: auto; }
+    .shop-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    #shop-close { border: 1px solid #b08945; background: transparent; border-radius: 6px; cursor: pointer; color: #8a6b3a; font-size: 12px; padding: 2px 8px; }
+    .shop-wallet { font-size: 13px; color: #6b5228; margin-bottom: 8px; }
+    .shop-sellbtn { width: 100%; border: 1.5px solid #b08945; background: rgba(255,255,255,0.6); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 13px; color: #4a3520; margin-bottom: 10px; }
+    .shop-sellbtn:disabled { opacity: 0.5; cursor: default; }
+    .shop-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #d9c9a3; border-radius: 8px; background: rgba(255,255,255,0.45); padding: 8px 10px; margin-bottom: 6px; }
+    .shop-w { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .shop-icon { font-size: 20px; }
+    .shop-name b { color: #d85a30; }
+    .shop-dmg { color: #6b5228; font-size: 12px; }
+    .shop-action { display: flex; align-items: center; gap: 8px; }
+    .shop-cost { font-size: 12px; color: #8a6b3a; }
+    .shop-btn { border: 1.5px solid #b08945; background: #ffe2bd; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #4a3520; }
+    .shop-btn:disabled { opacity: 0.45; cursor: default; }
+    .shop-max { font-size: 12px; font-weight: 700; color: #a97c14; }
+    .shop-hint { font-size: 11px; color: #8a6b3a; text-align: center; margin-top: 4px; }
 
     #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #ffe98a; text-shadow: 0 2px 8px rgba(90, 60, 0, 0.8); opacity: 0; pointer-events: none; }
     #levelup.show { animation: lvup 2.2s ease-out forwards; }
@@ -84,6 +103,13 @@
     <div id="quickbar" class="panel"></div>
     <div id="minimap-frame"><div class="label">미니맵</div></div>
     <div id="talk-hint" class="panel">E 대화하기</div>
+    <div id="shop" class="panel">
+      <div class="shop-title">🛒 상인 메이의 노점 <button id="shop-close">✕</button></div>
+      <div class="shop-wallet"><span id="shop-gold">0 G</span> · <span id="shop-jelly">젤리 x 0</span></div>
+      <button id="shop-sell" class="shop-sellbtn">젤리 전부 팔기</button>
+      <div id="shop-rows"></div>
+      <div class="shop-hint">젤리와 골드로 무기를 강화하세요 (최대 +5)</div>
+    </div>
     <div id="dialog" class="panel">
       <div id="dialog-name"></div>
       <div id="dialog-text"></div>

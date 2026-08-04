@@ -7,7 +7,8 @@ import { NPCManager } from './world/npcs.js';
 import { DropManager } from './world/drops.js';
 import { ProjectileManager } from './world/projectiles.js';
 import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog.js';
-import { bindPlayer, addXp, addGold, addJelly, useJelly } from './core/stats.js';
+import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
+import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
 import { Player } from './player/player.js';
 import { ThirdPersonCamera } from './player/camera.js';
 import { Minimap } from './ui/minimap.js';
@@ -36,13 +37,15 @@ async function boot() {
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
   player.onKill = (m) => {
-    addXp(12);
-    addGold(3 + Math.floor(Math.random() * 5));
-    drops.spawn(m.group.position);
+    const cfg = m.cfg;
+    addXp(cfg.xp);
+    addGold(cfg.gold[0] + Math.floor(Math.random() * (cfg.gold[1] - cfg.gold[0] + 1)));
+    for (let i = 0; i < cfg.jelly; i++) drops.spawn(m.group.position);
   };
 
   initHUD();
   initDialog();
+  initShop();
   initAudio();
   bindPlayer(player);
   setMP(100, 100);
@@ -52,6 +55,7 @@ async function boot() {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyI') toggleInventory();
     if (e.code === 'Digit1') useJelly();
+    if (e.code === 'Escape') closeShop();
     if (weaponKeys[e.code] && player.setWeapon(weaponKeys[e.code])) {
       setActiveWeapon(player.weapon);
     }
@@ -66,12 +70,15 @@ async function boot() {
   function update(delta) {
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
-      if (isDialogOpen()) advanceDialog();
+      if (isShopOpen()) closeShop();
+      else if (isDialogOpen()) advanceDialog();
+      else if (nearNpc && nearNpc.role === 'merchant') openShop();
       else if (nearNpc) openDialog(nearNpc);
     }
-    const talking = isDialogOpen();
+    const talking = isDialogOpen() || isShopOpen();
     if (!talking && nearNpc) {
-      talkHint.innerHTML = `<b>E</b> 대화하기 — ${nearNpc.name}`;
+      const verb = nearNpc.role === 'merchant' ? '상점' : '대화하기';
+      talkHint.innerHTML = `<b>E</b> ${verb} — ${nearNpc.name}`;
       talkHint.style.display = 'block';
     } else {
       talkHint.style.display = 'none';
@@ -100,6 +107,8 @@ async function boot() {
 
   window.__game = {
     engine, scene, player, camRig, minimap, input, monsters, npcs, drops, projectiles, obstacles,
+    stats,
+    debug: { addGold, addJelly, addXp },
     dialog: { openDialog, advanceDialog, isDialogOpen },
     step: (dt) => {
       update(dt);

@@ -31,6 +31,19 @@ export function setActiveWeapon(key) {
   }
 }
 
+export function setWeaponUpgrade(key, level) {
+  const idx = WEAPON_SLOTS[key];
+  if (!idx) return;
+  const slot = document.getElementById(`slot-${idx}`);
+  let badge = slot.querySelector('.slot-plus');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.className = 'slot-plus';
+    slot.appendChild(badge);
+  }
+  badge.textContent = level > 0 ? `+${level}` : '';
+}
+
 export function setHP(cur, max) {
   document.getElementById('hpfill').style.width = `${(cur / max) * 100}%`;
   document.getElementById('hptxt').textContent = `HP ${cur} / ${max}`;

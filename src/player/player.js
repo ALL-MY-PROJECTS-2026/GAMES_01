@@ -10,11 +10,18 @@ import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
 import { setHP } from '../ui/hud.js';
+import { weaponDamage } from '../core/stats.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
 const GRAVITY = 30;
 const JUMP_SPEED = 9.5;
+const COMBO_WINDOW = 0.9;
+const PUNCH_COMBO = [
+  { dmgMul: 0.85, knock: 3.5, cd: 0.3, lunge: 3.5, animSpeed: 2.2 },
+  { dmgMul: 1.0, knock: 4.5, cd: 0.3, lunge: 3.8, animSpeed: 2.4 },
+  { dmgMul: 1.7, knock: 16, cd: 0.55, lunge: 5.5, animSpeed: 1.7 }
+];
 const LOOPING = new Set(['Idle', 'Walking', 'Running']);
 const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
 
@@ -48,6 +55,8 @@ export class Player {
     this.pendingWeapon = null;
     this.currentLunge = 0;
     this.lungeUntil = 0;
+    this.comboStep = -1;
+    this.comboTimer = 0;
     this.weapon = 'punch';
     this.weaponMeshes = {};
     this.projectiles = null;
@@ -152,6 +161,8 @@ export class Player {
   setWeapon(key) {
     if (!WEAPONS[key]) return false;
     this.weapon = key;
+    this.comboStep = -1;
+    this.comboTimer = 0;
     if (this.weaponMeshes.sword) this.weaponMeshes.sword.setEnabled(key === 'sword');
     if (this.weaponMeshes.gun) this.weaponMeshes.gun.setEnabled(key === 'gun');
     return true;
@@ -203,10 +214,31 @@ export class Player {
         origin.y += 1.15;
         origin.x += face.x * 0.6;
         origin.z += face.z * 0.6;
-        this.projectiles.spawn(origin, face.clone(), w.damage, w.knock);
+        this.projectiles.spawn(origin, face.clone(), weaponDamage(w.damage, this.weapon), w.knock);
       }
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
+    } else if (this.weapon === 'punch') {
+      const step = this.comboTimer > 0 ? (this.comboStep + 1) % 3 : 0;
+      const st = PUNCH_COMBO[step];
+      this.comboStep = step;
+      this.comboTimer = COMBO_WINDOW;
+
+      this.attackCd = st.cd;
+      this.lockTimer = this.punchClipDur / st.animSpeed;
+      this.currentLunge = st.lunge;
+      this.lungeUntil = this.lockTimer - 0.25;
+      this.pendingHit = w.hitDelay;
+      this.pendingList = monsters;
+      this.pendingWeapon = {
+        ...w,
+        damage: Math.round(w.damage * st.dmgMul),
+        knock: st.knock
+      };
+      this.pendingWeaponKey = this.weapon;
+      this.play('Punch', true, st.animSpeed);
+      if (step === 2) sfx.punchHeavy();
+      else sfx.punch();
     } else {
       this.lockTimer = this.punchClipDur / w.animScale;
       this.currentLunge = w.lunge;
@@ -214,8 +246,8 @@ export class Player {
       this.pendingHit = w.hitDelay;
       this.pendingList = monsters;
       this.pendingWeapon = w;
-      if (this.weapon === 'sword') sfx.swing();
-      else sfx.punch();
+      this.pendingWeaponKey = this.weapon;
+      sfx.swing();
     }
   }
 
@@ -237,7 +269,11 @@ export class Player {
         to.normalize();
         if (Vector3.Dot(to, fwd) < w.arcDot) continue;
       }
-      const killed = m.takeDamage(w.damage, fwd, w.knock);
+      const killed = m.takeDamage(
+        weaponDamage(w.damage, this.pendingWeaponKey || this.weapon),
+        fwd,
+        w.knock
+      );
       if (killed) {
         sfx.kill();
         if (this.onKill) this.onKill(m);
@@ -325,6 +361,10 @@ export class Player {
 
     this.attackCd = Math.max(0, this.attackCd - delta);
     this.lockTimer = Math.max(0, this.lockTimer - delta);
+    if (this.comboTimer > 0) {
+      this.comboTimer -= delta;
+      if (this.comboTimer <= 0) this.comboStep = -1;
+    }
 
     if (this.groups && this.onGround && this.lockTimer <= 0) {
       if (moving && running) this.play('Running');

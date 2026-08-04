@@ -50,6 +50,7 @@ function noise(dur = 0.15, vol = 0.25, cutoff = 800) {
 
 export const sfx = {
   punch() { noise(0.12, 0.3, 900); tone(160, 0.12, 'square', 0.14, 80); },
+  punchHeavy() { noise(0.18, 0.42, 550); tone(110, 0.22, 'square', 0.22, 45); tone(320, 0.1, 'sine', 0.12, 90); },
   swing() { noise(0.14, 0.22, 3200); tone(650, 0.14, 'sine', 0.1, 1500); },
   shoot() { noise(0.07, 0.32, 1600); tone(230, 0.09, 'square', 0.16, 55); },
   hit() { tone(280, 0.1, 'square', 0.18, 140); },

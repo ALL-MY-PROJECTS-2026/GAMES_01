@@ -8,17 +8,24 @@ import {
 } from '@babylonjs/core';
 import { WORLD_HALF, resolveCollision } from './ground.js';
 
-const AGGRO_RANGE = 10;
-const ATTACK_RANGE = 1.9;
-const ATTACK_DAMAGE = 5;
+const RED = Color3.FromHexString('#e24b4a');
 const ATTACK_INTERVAL = 1.2;
-const MOVE_SPEED = 3.6;
-const WANDER_SPEED = 1;
-const MAX_HP = 30;
 const RESPAWN_TIME = 15;
 
-const GREEN = Color3.FromHexString('#59b83a');
-const RED = Color3.FromHexString('#e24b4a');
+export const MONSTER_TYPES = {
+  slime: {
+    name: '슬라임',
+    hp: 30, damage: 5, speed: 3.6, wanderSpeed: 1, aggro: 10, attackRange: 1.9,
+    xp: 12, gold: [3, 7], jelly: 1,
+    barY: 1.5, ring: [18, 55]
+  },
+  mushroom: {
+    name: '버섯돌이',
+    hp: 60, damage: 10, speed: 2.2, wanderSpeed: 0.7, aggro: 9, attackRange: 2.0,
+    xp: 25, gold: [8, 14], jelly: 2,
+    barY: 1.9, ring: [45, 85]
+  }
+};
 
 function flatMat(scene, name, hex, emissive = false) {
   const mat = new StandardMaterial(name, scene);
@@ -32,43 +39,86 @@ function flatMat(scene, name, hex, emissive = false) {
   return mat;
 }
 
-class Slime {
-  constructor(scene, shadow) {
+class Monster {
+  constructor(scene, shadow, typeKey) {
     this.scene = scene;
-    this.group = new TransformNode('slime', scene);
-
-    this.bodyMat = new StandardMaterial('slimeMat', scene);
-    this.bodyMat.diffuseColor = GREEN.clone();
-    this.bodyMat.specularColor = new Color3(0, 0, 0);
-
-    this.body = MeshBuilder.CreateSphere('slimeBody', { diameter: 1.4, segments: 12 }, scene);
-    this.body.material = this.bodyMat;
-    this.body.scaling.set(1, 0.72, 1);
-    this.body.position.y = 0.5;
+    this.typeKey = typeKey;
+    this.cfg = MONSTER_TYPES[typeKey];
+    this.group = new TransformNode('mon-' + typeKey, scene);
+    this.body = new TransformNode('monBody', scene);
     this.body.parent = this.group;
-    if (shadow) shadow.addShadowCaster(this.body);
 
     const eyeMat = flatMat(scene, 'eye', '#222222', true);
-    for (const sx of [-0.22, 0.22]) {
-      const eye = MeshBuilder.CreateSphere('eye', { diameter: 0.18, segments: 6 }, scene);
-      eye.material = eyeMat;
-      eye.position.set(sx, 0.62, 0.58);
-      eye.parent = this.group;
+
+    if (typeKey === 'slime') {
+      this.flashMat = new StandardMaterial('slimeMat', scene);
+      this.flashMat.diffuseColor = Color3.FromHexString('#59b83a');
+      this.flashMat.specularColor = new Color3(0, 0, 0);
+      this.baseColor = Color3.FromHexString('#59b83a');
+
+      const s = MeshBuilder.CreateSphere('slimeBody', { diameter: 1.4, segments: 12 }, scene);
+      s.material = this.flashMat;
+      s.scaling.set(1, 0.72, 1);
+      s.position.y = 0.5;
+      s.parent = this.body;
+      if (shadow) shadow.addShadowCaster(s);
+
+      for (const sx of [-0.22, 0.22]) {
+        const eye = MeshBuilder.CreateSphere('eye', { diameter: 0.18, segments: 6 }, scene);
+        eye.material = eyeMat;
+        eye.position.set(sx, 0.62, 0.58);
+        eye.parent = this.body;
+      }
+    } else {
+      this.flashMat = new StandardMaterial('capMat', scene);
+      this.flashMat.diffuseColor = Color3.FromHexString('#c4553f');
+      this.flashMat.specularColor = new Color3(0, 0, 0);
+      this.baseColor = Color3.FromHexString('#c4553f');
+
+      const stem = MeshBuilder.CreateCylinder(
+        'stem', { diameterTop: 0.55, diameterBottom: 0.7, height: 0.95, tessellation: 10 }, scene
+      );
+      stem.material = flatMat(scene, 'stemMat', '#e8dcc4');
+      stem.position.y = 0.48;
+      stem.parent = this.body;
+      if (shadow) shadow.addShadowCaster(stem);
+
+      const cap = MeshBuilder.CreateSphere('cap', { diameter: 1.6, segments: 12 }, scene);
+      cap.material = this.flashMat;
+      cap.scaling.set(1, 0.62, 1);
+      cap.position.y = 1.05;
+      cap.parent = this.body;
+      if (shadow) shadow.addShadowCaster(cap);
+
+      const spotMat = flatMat(scene, 'spot', '#fdf7ec');
+      for (const [sx, sz] of [[-0.35, 0.25], [0.4, 0.1], [0.05, -0.42]]) {
+        const spot = MeshBuilder.CreateSphere('spot', { diameter: 0.22, segments: 6 }, scene);
+        spot.material = spotMat;
+        spot.position.set(sx, 1.32, sz);
+        spot.parent = this.body;
+      }
+
+      for (const sx of [-0.16, 0.16]) {
+        const eye = MeshBuilder.CreateSphere('eye', { diameter: 0.14, segments: 6 }, scene);
+        eye.material = eyeMat;
+        eye.position.set(sx, 0.62, 0.34);
+        eye.parent = this.body;
+      }
     }
 
     this.hpBg = MeshBuilder.CreatePlane('hpBg', { width: 1.3, height: 0.14 }, scene);
     this.hpBg.material = flatMat(scene, 'hpBg', '#2c2c2a', true);
     this.hpBg.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    this.hpBg.position.y = 1.5;
+    this.hpBg.position.y = this.cfg.barY;
     this.hpBg.parent = this.group;
 
     this.hpBar = MeshBuilder.CreatePlane('hpBar', { width: 1.24, height: 0.1 }, scene);
     this.hpBar.material = flatMat(scene, 'hpFill', '#e24b4a', true);
     this.hpBar.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    this.hpBar.position.y = 1.5;
+    this.hpBar.position.y = this.cfg.barY;
     this.hpBar.parent = this.group;
 
-    this.hp = MAX_HP;
+    this.hp = this.cfg.hp;
     this.dead = false;
     this.respawnT = 0;
     this.attackT = 0;
@@ -84,8 +134,9 @@ class Slime {
   }
 
   placeRandom() {
+    const [rMin, rMax] = this.cfg.ring;
     const angle = Math.random() * Math.PI * 2;
-    const radius = 18 + Math.random() * 55;
+    const radius = rMin + Math.random() * (rMax - rMin);
     this.group.position.set(
       Math.max(-WORLD_HALF, Math.min(WORLD_HALF, Math.cos(angle) * radius)),
       0,
@@ -101,7 +152,7 @@ class Slime {
     if (this.dead) return false;
     this.hp -= amount;
     this.flashT = 0.15;
-    this.bodyMat.diffuseColor.copyFrom(RED);
+    this.flashMat.diffuseColor.copyFrom(RED);
     this.body.scaling.set(1.18, 0.45, 1.18);
     if (dir) {
       this.knock.copyFromFloats(dir.x, 0, dir.z);
@@ -127,7 +178,7 @@ class Slime {
       this.respawnT -= delta;
       if (this.respawnT <= 0) {
         this.dead = false;
-        this.hp = MAX_HP;
+        this.hp = this.cfg.hp;
         this.setVisible(true);
         this.placeRandom();
       }
@@ -137,8 +188,8 @@ class Slime {
     if (this.flashT > 0) {
       this.flashT -= delta;
       if (this.flashT <= 0) {
-        this.bodyMat.diffuseColor.copyFrom(GREEN);
-        this.body.scaling.set(1, 0.72, 1);
+        this.flashMat.diffuseColor.copyFrom(this.baseColor);
+        this.body.scaling.set(1, 1, 1);
       }
     }
 
@@ -150,7 +201,7 @@ class Slime {
       pos.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.x));
       pos.z = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.z));
       resolveCollision(pos, 0.7, obstacles);
-      this.hpBar.scaling.x = Math.max(0, this.hp / MAX_HP);
+      this.hpBar.scaling.x = Math.max(0, this.hp / this.cfg.hp);
       return;
     }
 
@@ -158,22 +209,22 @@ class Slime {
     toPlayer.y = 0;
     const dist = toPlayer.length();
 
-    if (dist < AGGRO_RANGE) {
+    if (dist < this.cfg.aggro) {
       const safeD = Math.max(dist, 0.001);
       const nx = toPlayer.x / safeD;
       const nz = toPlayer.z / safeD;
 
       this._rotateToward(Math.atan2(toPlayer.x, toPlayer.z), 10, delta);
 
-      if (dist > ATTACK_RANGE * 0.8) {
-        pos.x += nx * MOVE_SPEED * delta;
-        pos.z += nz * MOVE_SPEED * delta;
+      if (dist > this.cfg.attackRange * 0.8) {
+        pos.x += nx * this.cfg.speed * delta;
+        pos.z += nz * this.cfg.speed * delta;
       }
       this.attackT -= delta;
-      if (dist < ATTACK_RANGE && this.attackT <= 0) {
+      if (dist < this.cfg.attackRange && this.attackT <= 0) {
         this.attackT = ATTACK_INTERVAL;
         this.attackAnim = 0.3;
-        player.takeDamage(ATTACK_DAMAGE, { x: nx, z: nz });
+        player.takeDamage(this.cfg.damage, { x: nx, z: nz });
       }
     } else {
       this.wanderT -= delta;
@@ -184,8 +235,8 @@ class Slime {
         if (Math.random() < 0.35) this.wanderDir.copyFromFloats(0, 0, 0);
       }
       if (this.wanderDir.lengthSquared() > 0) {
-        pos.x += this.wanderDir.x * WANDER_SPEED * delta;
-        pos.z += this.wanderDir.z * WANDER_SPEED * delta;
+        pos.x += this.wanderDir.x * this.cfg.wanderSpeed * delta;
+        pos.z += this.wanderDir.z * this.cfg.wanderSpeed * delta;
         this._rotateToward(Math.atan2(this.wanderDir.x, this.wanderDir.z), 6, delta);
       }
     }
@@ -194,23 +245,25 @@ class Slime {
     pos.z = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.z));
     resolveCollision(pos, 0.7, obstacles);
 
-    this.bounce += delta * 6;
+    this.bounce += delta * (this.typeKey === 'slime' ? 6 : 3.5);
     let hop = 0;
     if (this.attackAnim > 0) {
       this.attackAnim -= delta;
       hop = Math.sin(Math.max(0, this.attackAnim) / 0.3 * Math.PI) * 0.35;
     }
-    this.body.position.y = 0.5 + Math.abs(Math.sin(this.bounce)) * 0.12 + hop;
+    this.body.position.y = Math.abs(Math.sin(this.bounce)) * 0.12 + hop;
 
-    this.hpBar.scaling.x = Math.max(0, this.hp / MAX_HP);
+    this.hpBar.scaling.x = Math.max(0, this.hp / this.cfg.hp);
   }
 }
 
 export class MonsterManager {
-  constructor(scene, obstacles, shadow, count = 8) {
+  constructor(scene, obstacles, shadow, counts = { slime: 8, mushroom: 5 }) {
     this.obstacles = obstacles;
     this.list = [];
-    for (let i = 0; i < count; i++) this.list.push(new Slime(scene, shadow));
+    for (const [type, n] of Object.entries(counts)) {
+      for (let i = 0; i < n; i++) this.list.push(new Monster(scene, shadow, type));
+    }
   }
 
   update(delta, player) {
