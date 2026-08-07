@@ -13,20 +13,25 @@ function mat(scene, name, hex) {
   return m;
 }
 
+// 칼끝까지의 길이 — 궤적(트레일) 계산에 쓴다
+export const SWORD_TIP_Y = 1.72;
+
 export function makeSwordMesh(scene) {
   const g = new TransformNode('sword', scene);
   const steel = mat(scene, 'steel', '#d8dde4');
   const gold = mat(scene, 'gold', '#b08945');
   const grip = mat(scene, 'grip', '#6b4a2e');
+  // 원작처럼 칼날이 한눈에 읽히도록 밝게
+  steel.emissiveColor = Color3.FromHexString('#5b6c86');
 
-  const blade = MeshBuilder.CreateBox('blade', { width: 0.07, height: 0.95, depth: 0.18 }, scene);
+  const blade = MeshBuilder.CreateBox('blade', { width: 0.065, height: 1.4, depth: 0.16 }, scene);
   blade.material = steel;
-  blade.position.y = 0.62;
+  blade.position.y = 0.85;
   blade.parent = g;
 
-  const tip = MeshBuilder.CreateCylinder('tip', { diameterTop: 0, diameterBottom: 0.18, height: 0.18, tessellation: 4 }, scene);
+  const tip = MeshBuilder.CreateCylinder('tip', { diameterTop: 0, diameterBottom: 0.16, height: 0.24, tessellation: 4 }, scene);
   tip.material = steel;
-  tip.position.y = 1.18;
+  tip.position.y = 1.6;
   tip.rotation.y = Math.PI / 4;
   tip.parent = g;
 

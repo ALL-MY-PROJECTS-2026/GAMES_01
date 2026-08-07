@@ -8,14 +8,16 @@ import {
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
-import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
-import { setHP, setMP, showCombo, flashHurt } from '../ui/hud.js';
+import { WEAPONS, makeSwordMesh, makeGunMesh, SWORD_TIP_Y } from './weapons.js';
+import { BladeTrail } from './blade_trail.js';
+import { setHP, setMP, showCombo, flashHurt, showDamage } from '../ui/hud.js';
 import { hitstop, shake } from '../core/juice.js';
 import {
   weaponDamage, stats, attackSpeedMul, moveSpeedAttrMul, magicDamageMul, damageTakenMul
 } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
+import { buildIlim } from './ilim_model.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
@@ -34,6 +36,18 @@ const PUNCH_COMBO = [
   { dmgMul: 2.0, knock: 18, knockUp: 2.5, cd: 0.68, lunge: 6.0, anim: { name: 'Punch', speed: 1.35 } }
 ];
 const FINISHER_STEP = PUNCH_COMBO.length - 1;
+// 퇴마검 2단 기본 콤보: 찌르기 → 가로베기
+const SWORD_COMBO = [
+  {
+    dmgMul: 0.95, knock: 9, knockUp: 0, cd: 0.42, lunge: 5.4, arcDot: 0.5, rangeMul: 1.15,
+    anim: { name: 'Punch', speed: 1.9, rigMotion: 'thrust' }
+  },
+  {
+    dmgMul: 1.35, knock: 15, knockUp: 1.5, cd: 0.58, lunge: 3.4, arcDot: -0.25, rangeMul: 1,
+    anim: { name: 'Wave', speed: 1.7, toFrac: 0.5, rigMotion: 'slash' }
+  }
+];
+const SWORD_FINISHER = SWORD_COMBO.length - 1;
 const LOOPING = new Set(['Idle', 'Walking', 'Running']);
 const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
 
@@ -86,6 +100,10 @@ export class Player {
     this.groups = null;
     this.currentAction = null;
     this.currentName = '';
+    this.rig = null; // 프로시저럴 리그(이림) 사용 시 설정
+    this.trail = new BladeTrail(scene);
+    this._tipTmp = new Vector3(0, 0, 0);
+    this._baseTmp = new Vector3(0, 0, 0);
 
     this.knockV = new Vector3(0, 0, 0);
     this._dir = new Vector3(0, 0, 0);
@@ -93,7 +111,34 @@ export class Player {
     this._move = new Vector3(0, 0, 0);
     this._face = new Vector3(0, 0, 0);
 
-    this._loadModel(shadow);
+    if (this.charCfg.proceduralRig === 'ilim') this._buildRig(shadow);
+    else this._loadModel(shadow);
+  }
+
+  // 프로시저럴 로우폴리 리그(이림) — GLB 대신 코드로 만든 모델을 사용한다
+  _buildRig(shadow) {
+    const rig = buildIlim(this.scene, shadow);
+    rig.root.parent = this.group;
+    this.rig = rig;
+    this.model = rig.root;
+    this.clipDur = { Punch: 0.5, Wave: 0.55, Jump: 0.5 };
+    this.punchClipDur = 0.5;
+
+    this.placeholder.dispose();
+    this.placeholder = null;
+
+    const sword = makeSwordMesh(this.scene);
+    const gun = makeGunMesh(this.scene);
+    // 무기의 로컬 +Y가 칼끝 — 방향은 손목(handR) 회전이 만든다
+    for (const w of [sword, gun]) w.parent = rig.handR;
+    sword.position.set(0, 0, 0);
+    gun.rotation.set(Math.PI / 2, 0, 0);
+    gun.position.set(0, 0.05, 0);
+    sword.setEnabled(false);
+    gun.setEnabled(false);
+    this.weaponMeshes = { sword, gun };
+    this.setWeapon(this.weapon);
+    this.play('Idle');
   }
 
   async _loadModel(shadow) {
@@ -171,7 +216,13 @@ export class Player {
     this.setWeapon(this.weapon);
   }
 
-  play(name, force = false, speedOverride = null, fromFrac = 0, toFrac = 1) {
+  play(name, force = false, speedOverride = null, fromFrac = 0, toFrac = 1, rigMotion = null) {
+    if (this.rig) {
+      const speed = speedOverride !== null ? speedOverride : SPEEDS[name] || 1;
+      this.rig.setAnim(name, speed, fromFrac, rigMotion);
+      this.currentName = name;
+      return;
+    }
     if (!this.groups) return;
     const next = this.groups[name];
     if (!next) return;
@@ -311,6 +362,7 @@ export class Player {
       this.comboStep = step;
       this.comboTimer = COMBO_WINDOW;
       this.pendingComboStep = step;
+      this.pendingIsFinisher = step === FINISHER_STEP;
 
       const fin = step === FINISHER_STEP ? finisherMods(stats.skills) : { dmgMul: 1, knockMul: 1 };
       const a = st.anim;
@@ -336,16 +388,57 @@ export class Player {
       if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {
-      this.lockTimer = this.punchClipDur / (w.animScale * aspd);
-      this.currentLunge = w.lunge;
+      // 퇴마검 2단 연계: 찌르기 → 가로베기
+      const step = this.comboTimer > 0 ? (this.comboStep + 1) % SWORD_COMBO.length : 0;
+      const st = SWORD_COMBO[step];
+      this.comboStep = step;
+      this.comboTimer = COMBO_WINDOW;
+      this.pendingComboStep = step;
+      this.pendingIsFinisher = step === SWORD_FINISHER;
+
+      const a = st.anim;
+      const fromFrac = a.fromFrac || 0;
+      const toFrac = a.toFrac !== undefined ? a.toFrac : 1;
+      const clipDur = (this.clipDur && this.clipDur[a.name]) || this.punchClipDur;
+      const sliceDur = clipDur * (toFrac - fromFrac) / (a.speed * aspd);
+
+      this.attackCd = st.cd / aspd;
+      this.lockTimer = sliceDur;
+      this.currentLunge = st.lunge;
       this.lungeUntil = this.lockTimer - 0.25;
-      this.pendingHit = w.hitDelay / aspd;
+      this.pendingHit = Math.min(w.hitDelay / aspd, sliceDur * 0.45);
       this.pendingList = monsters;
-      this.pendingWeapon = w;
+      this.pendingWeapon = {
+        ...w,
+        damage: Math.round(w.damage * st.dmgMul),
+        knock: st.knock,
+        knockUp: st.knockUp || 0,
+        arcDot: st.arcDot,          // 찌르기는 좁게, 베기는 넓게
+        range: w.range * st.rangeMul
+      };
       this.pendingWeaponKey = this.weapon;
-      this.play('Punch', true, w.animScale * aspd);
+      this.play(a.name, true, a.speed * aspd, fromFrac, toFrac, a.rigMotion);
+      this.trail.start();
       sfx.swing();
     }
+  }
+
+  // 몬스터 머리 위 화면 좌표에 피해 숫자를 띄운다
+  popDamage(monster, amount, crit = false) {
+    const scene = this.scene;
+    const cam = scene.activeCameras && scene.activeCameras[0];
+    if (!cam) return;
+    const engine = scene.getEngine();
+    const p = monster.group.position;
+    // 미니맵 카메라가 마지막에 렌더되므로 scene.getTransformMatrix() 대신 메인 카메라 행렬을 쓴다
+    const vp = cam.getViewMatrix().multiply(cam.getProjectionMatrix());
+    const ndc = Vector3.TransformCoordinates(new Vector3(p.x, p.y + 1.9, p.z), vp);
+    if (ndc.z < 0 || ndc.z > 1) return;
+    const canvas = engine.getRenderingCanvas();
+    const rect = canvas.getBoundingClientRect();
+    const x = (ndc.x * 0.5 + 0.5) * rect.width;
+    const y = (0.5 - ndc.y * 0.5) * rect.height;
+    showDamage(Math.round(x), Math.round(y), amount, crit);
   }
 
   _applyHit() {
@@ -368,12 +461,9 @@ export class Player {
         if (Vector3.Dot(to, fwd) < w.arcDot) continue;
       }
       const wKey = this.pendingWeaponKey || this.weapon;
-      const killed = m.takeDamage(
-        Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey)),
-        fwd,
-        w.knock,
-        w.knockUp || 0
-      );
+      const dealt = Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey));
+      const killed = m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0);
+      this.popDamage(m, dealt, this.pendingIsFinisher);
       hitAny = true;
       if (killed) {
         hitstop(0.12);
@@ -385,11 +475,17 @@ export class Player {
       }
     }
     if (hitAny) {
-      const isPunch = (this.pendingWeaponKey || this.weapon) === 'punch';
-      const finisher = isPunch && this.pendingComboStep === FINISHER_STEP;
+      const key = this.pendingWeaponKey || this.weapon;
+      const isPunch = key === 'punch';
+      const isSword = key === 'sword';
+      const finisher =
+        (isPunch && this.pendingComboStep === FINISHER_STEP) ||
+        (isSword && this.pendingComboStep === SWORD_FINISHER);
       hitstop(finisher ? 0.09 : 0.05);
       if (finisher) shake(0.22, 0.18);
-      if (isPunch) showCombo(this.pendingComboStep + 1, finisher);
+      if (isPunch || isSword) {
+        showCombo(this.pendingComboStep + 1, finisher, isPunch ? '붕권' : '가로베기');
+      }
     }
   }
 
@@ -496,10 +592,24 @@ export class Player {
       if (this.comboTimer <= 0) this.comboStep = -1;
     }
 
-    if (this.groups && this.onGround && this.lockTimer <= 0) {
+    if ((this.groups || this.rig) && this.onGround && this.lockTimer <= 0) {
       if (moving && running) this.play('Running');
       else if (moving) this.play('Walking');
       else this.play('Idle');
     }
+    if (this.rig) this.rig.tick(delta);
+    this._updateTrail(delta);
+  }
+
+  // 칼날의 뿌리·끝 월드 좌표를 매 프레임 궤적에 기록
+  _updateTrail(delta) {
+    const sword = this.weaponMeshes && this.weaponMeshes.sword;
+    if (sword && sword.isEnabled() && this.trail.life > 0) {
+      const m = sword.getWorldMatrix();
+      Vector3.TransformCoordinatesFromFloatsToRef(0, 0.25, 0, m, this._baseTmp);
+      Vector3.TransformCoordinatesFromFloatsToRef(0, SWORD_TIP_Y, 0, m, this._tipTmp);
+      this.trail.emit(this._baseTmp, this._tipTmp);
+    }
+    this.trail.update(delta);
   }
 }

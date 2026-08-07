@@ -33,7 +33,7 @@ export function initHUD() {
 
   const weapons = [
     [2, '👊', '권법 — 5단 연계 콤보 (잽·잽·훅·어퍼·붕권)'],
-    [3, '🗡️', '퇴마검 — 넓은 범위, 강한 넉백'],
+    [3, '🗡️', '퇴마검 — 2단 연계 (찌르기 → 가로베기)'],
     [4, '🧧', '부적 — 원거리 연사']
   ];
   for (const [i, icon, title] of weapons) {
@@ -117,6 +117,19 @@ export function flashLevelUp(level) {
   el.classList.add('show');
 }
 
+// 피해 숫자 팝업 (원작처럼 타격 지점에 붉은 숫자)
+export function showDamage(screenX, screenY, amount, crit = false) {
+  const layer = document.getElementById('dmg-layer');
+  if (!layer) return;
+  const el = document.createElement('div');
+  el.className = 'dmgnum' + (crit ? ' crit' : '');
+  el.textContent = amount;
+  el.style.left = `${screenX}px`;
+  el.style.top = `${screenY}px`;
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 800);
+}
+
 export function flashHurt() {
   const el = document.getElementById('hitflash');
   if (!el) return;
@@ -127,10 +140,10 @@ export function flashHurt() {
 
 let comboHideT = null;
 
-export function showCombo(n, finisher = false) {
+export function showCombo(n, finisher = false, finisherName = '붕권') {
   const el = document.getElementById('combo');
   if (!el) return;
-  el.textContent = finisher ? `${n}연격 붕권!` : `${n}연격`;
+  el.textContent = finisher ? `${n}연격 ${finisherName}!` : `${n}연격`;
   el.classList.toggle('finisher', finisher);
   el.classList.remove('pop');
   void el.offsetWidth;

@@ -75,6 +75,10 @@
     .shop-hint { font-size: 11px; color: #8a7a55; text-align: center; margin-top: 4px; }
 
     #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); opacity: 0; pointer-events: none; text-align: center; }
+    #dmg-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+    .dmgnum { position: absolute; transform: translate(-50%, -50%); font-size: 19px; font-weight: 700; color: #ff5a4a; text-shadow: 0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.8); animation: dmgFloat 0.8s ease-out forwards; }
+    .dmgnum.crit { font-size: 27px; color: #ffd23e; }
+    @keyframes dmgFloat { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); } 18% { opacity: 1; transform: translate(-50%, -80%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
     #hitflash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 30, 20, 0.5) 100%); }
     #hitflash.show { animation: hurtflash 0.35s ease-out; }
     @keyframes hurtflash { 0% { opacity: 1; } 100% { opacity: 0; } }
@@ -134,6 +138,7 @@
   </div>
   <div id="hud">
     <div id="hitflash"></div>
+    <div id="dmg-layer"></div>
     <div id="party" class="panel">
       <div class="prow">
         <div class="portrait p-ilim" id="pportrait">림</div>

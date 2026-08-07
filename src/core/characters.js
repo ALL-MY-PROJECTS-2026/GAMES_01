@@ -4,6 +4,7 @@ export const CHARACTERS = {
   ilim: {
     key: 'ilim', name: '이림', role: '근접 무투가', desc: '검문의 마지막 제자. 주먹과 검의 달인',
     portraitClass: 'p-ilim', letter: '림', tint: null, compRole: 'fighter',
+    proceduralRig: 'ilim',
     meleeMul: 1.15, rangedMul: 1.0, magicMul: 0.8,
     maxMp: 80, mpRegen: 5,
     companion: { color: '#7a3b2e', tint: '#e8b49a', projColor: '#ff9a66', damage: 9, interval: 1.1, range: 13, hp: 95 }
