@@ -130,6 +130,12 @@ export class Player {
     this.model.scaling.setAll(scale);
     this.model.position.y = -min.y * scale;
 
+    // 모델에 내장된 무기 프롭(석궁·단검·투척물 등)은 전부 끈다 — 무기는 게임이 직접 붙인다
+    for (const m of res.meshes) {
+      const parent = m.parent && m.parent.name;
+      if (parent && /^handslot/i.test(parent)) m.setEnabled(false);
+    }
+
     // 색조 기반 리컬러(이림의 붉은 무복) 또는 단순 틴트
     let recolored = null;
     if (cfg.recolor && cfg.texture) {
