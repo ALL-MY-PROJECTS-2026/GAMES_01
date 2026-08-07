@@ -55,6 +55,7 @@ async function boot() {
   const drops = new DropManager(scene, true);
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
+  monsters.setProjectiles(projectiles);
   // 솔로 플레이: 선택한 캐릭터 한 명만 등장 (동료 AI 비활성)
   const companions = new CompanionManager(scene, shadow, []);
   const party = [player];
@@ -219,6 +220,7 @@ async function boot() {
       }
     };
     monsters.update(d, party);
+    projectiles.updateHostile(d, player);
     companions.update(d, player, monsters.list, obstacles, projectiles, handleHit);
     projectiles.update(d, monsters.list, handleHit);
     npcs.update(delta, player);

@@ -63,6 +63,23 @@ export const MONSTER_TYPES = {
       props: ['1H_Sword', 'Round_Shield']
     }
   },
+  // 악귀 술사 — 거리를 두고 술법을 쏜다. 근접하면 물러난다
+  // (REFERENCE.md: 원거리·술법형 적이 없으면 전투가 단조로워진다)
+  caster: {
+    name: '악귀 술사',
+    hp: 55, damage: 13, speed: 3.0, wanderSpeed: 0.9, aggro: 18, attackRange: 15,
+    xp: 34, gold: [14, 24], jelly: 2,
+    barY: 2.2, ring: [40, 80],
+    ranged: { projectileColor: '#b06cff', speed: 22, interval: 2.2, keepDistance: 7 },
+    model: {
+      file: 'Mage.glb', height: 1.85,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: 'Spellcast_Shoot', hit: 'Hit_A', death: 'Death_A'
+      },
+      props: ['2H_Staff', 'Spellbook']
+    }
+  },
   // 왕도깨비 — 1장 필드 보스. 느리고 단단하며 패턴 2개를 번갈아 쓴다
   boss: {
     name: '왕도깨비',
@@ -441,7 +458,21 @@ class Monster {
 
       this._rotateToward(Math.atan2(toT.x, toT.z), 10, delta);
 
-      if (dist > this.cfg.attackRange * 0.8) {
+      const rng = this.cfg.ranged;
+      if (rng) {
+        // 원거리형: 사거리 안이면 멈추고, 너무 붙으면 뒷걸음질친다
+        if (dist > this.cfg.attackRange * 0.85) {
+          pos.x += nx * this.cfg.speed * delta;
+          pos.z += nz * this.cfg.speed * delta;
+          this._moveState = 'run';
+        } else if (dist < rng.keepDistance) {
+          pos.x -= nx * this.cfg.speed * 0.85 * delta;
+          pos.z -= nz * this.cfg.speed * 0.85 * delta;
+          this._moveState = 'walk';
+        } else {
+          this._moveState = 'idle';
+        }
+      } else if (dist > this.cfg.attackRange * 0.8) {
         pos.x += nx * this.cfg.speed * delta;
         pos.z += nz * this.cfg.speed * delta;
         this._moveState = 'run';
@@ -474,6 +505,19 @@ class Monster {
           this.attackAnim = 0.3;
           this.playOneShot(pat.clip, 1);
           this.pendingAtk = { pattern: pat, t: pat.windup };
+        }
+      } else if (this.cfg.ranged) {
+        // 원거리형: 투사체를 쏜다 (판정은 ProjectileManager가 처리)
+        if (dist < this.cfg.attackRange && this.attackT <= 0 && this.projectiles) {
+          const rng = this.cfg.ranged;
+          this.attackT = rng.interval;
+          this.attackAnim = 0.3;
+          this.playOneShot('attack', 1.2);
+          this.projectiles.spawnHostile(
+            { x: pos.x + nx * 0.6, y: 1.3, z: pos.z + nz * 0.6 },
+            { x: nx, z: nz },
+            this.cfg.damage, rng.projectileColor, rng.speed
+          );
         }
       } else if (dist < this.cfg.attackRange && this.attackT <= 0) {
         this.attackT = ATTACK_INTERVAL;
@@ -530,12 +574,17 @@ class Monster {
 
 export class MonsterManager {
   constructor(scene, obstacles, shadow,
-    counts = { slime: 5, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3, boss: 1 }) {
+    counts = { slime: 4, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3, caster: 3, boss: 1 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {
       for (let i = 0; i < n; i++) this.list.push(new Monster(scene, shadow, type));
     }
+  }
+
+  // 원거리형 몬스터가 투사체를 쏠 수 있도록 매니저를 넘겨준다
+  setProjectiles(projectiles) {
+    for (const m of this.list) m.projectiles = projectiles;
   }
 
   update(delta, targets) {

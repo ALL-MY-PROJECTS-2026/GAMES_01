@@ -12,7 +12,53 @@ export class ProjectileManager {
     this.list = [];
     this.mats = {};
     this.arrowTemplate = null;
+    this.hostile = [];   // 적이 쏜 투사체 — 플레이어를 노린다
     this._loadKitArrow();
+  }
+
+  // 적 투사체 (술법탄). 플레이어에게만 판정된다
+  spawnHostile(origin, dir, damage, color = '#b06cff', speed = 22) {
+    const mesh = MeshBuilder.CreateSphere('hostileBolt', { diameter: 0.32, segments: 8 }, this.scene);
+    mesh.material = this._mat(color);
+    mesh.applyFog = false;
+    mesh.isPickable = false;
+    mesh.position.set(origin.x, origin.y, origin.z);
+    this.hostile.push({
+      mesh, vx: dir.x * speed, vz: dir.z * speed,
+      dirN: { x: dir.x, z: dir.z }, life: 2.2, damage
+    });
+  }
+
+  updateHostile(delta, player) {
+    for (let i = this.hostile.length - 1; i >= 0; i--) {
+      const p = this.hostile[i];
+      p.life -= delta;
+      const pos = p.mesh.position;
+      pos.x += p.vx * delta;
+      pos.z += p.vz * delta;
+      p.mesh.rotation.y += delta * 6;
+
+      let done = p.life <= 0 || Math.abs(pos.x) > WORLD_HALF + 4 || Math.abs(pos.z) > WORLD_HALF + 4;
+      if (!done) {
+        const dx = pos.x - player.group.position.x;
+        const dz = pos.z - player.group.position.z;
+        if (dx * dx + dz * dz < 0.8 * 0.8) {
+          player.takeDamage(p.damage, p.dirN);
+          done = true;
+        }
+      }
+      if (!done) {
+        for (const o of this.obstacles) {
+          const dx = pos.x - o.x;
+          const dz = pos.z - o.z;
+          if (dx * dx + dz * dz < o.r * o.r) { done = true; break; }
+        }
+      }
+      if (done) {
+        p.mesh.dispose();
+        this.hostile.splice(i, 1);
+      }
+    }
   }
 
   // KayKit 화살을 미리 불러 원본으로 삼는다 (실패 시 절차적 화살을 그대로 사용)
