@@ -8,7 +8,7 @@ import {
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
-import { WEAPONS, makeSwordMesh, makeGunMesh, SWORD_TIP_Y } from './weapons.js';
+import { WEAPONS, makeSwordMesh, makeGunMesh, SWORD_TIP_Y, loadKitMesh } from './weapons.js';
 import { BladeTrail } from './blade_trail.js';
 import { recolorTexture } from './recolor.js';
 import { setHP, setMP, showCombo, flashHurt, showDamage } from '../ui/hud.js';
@@ -187,7 +187,9 @@ export class Player {
     this.play('idle');
 
     // 무기 부착: 모델이 전용 무기 슬롯 본을 가지면 그쪽에, 없으면 손 노드에 붙인다
-    const sword = makeSwordMesh(this.scene);
+    // 아트 스타일을 맞추기 위해 KayKit 검을 우선 쓰고, 실패하면 절차적 메시로 대체한다
+    const sword = (await loadKitMesh(this.scene, 'sword_1handed.gltf', { height: SWORD_TIP_Y }))
+      || makeSwordMesh(this.scene);
     const gun = makeGunMesh(this.scene);
     const slotBone = cfg.weaponBone
       ? (res.skeletons[0] && res.skeletons[0].bones.find((b) => b.name === cfg.weaponBone))

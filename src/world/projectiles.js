@@ -1,5 +1,6 @@
-import { MeshBuilder, StandardMaterial, Color3, Mesh } from '@babylonjs/core';
+import { MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode } from '@babylonjs/core';
 import { WORLD_HALF } from './ground.js';
+import { loadKitMesh } from '../player/weapons.js';
 
 const SPEED = 42;
 const LIFE = 0.9;
@@ -11,6 +12,21 @@ export class ProjectileManager {
     this.list = [];
     this.mats = {};
     this.arrowTemplate = null;
+    this._loadKitArrow();
+  }
+
+  // KayKit 화살을 미리 불러 원본으로 삼는다 (실패 시 절차적 화살을 그대로 사용)
+  async _loadKitArrow() {
+    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 0.9 });
+    if (!kit) return;
+    // 모델의 긴 축을 진행 방향(+Z)에 맞춘다
+    kit.rotation.x = Math.PI / 2;
+    const holder = new TransformNode('kitArrowTemplate', this.scene);
+    kit.parent = holder;
+    holder.setEnabled(false);
+    for (const m of kit.getChildMeshes()) m.applyFog = false;
+    this.arrowTemplate = holder;
+    this.kitArrow = true;
   }
 
   // 화살 원본을 한 번만 만들고 이후에는 복제해서 쓴다 (로컬 +Z가 진행 방향)
@@ -69,8 +85,10 @@ export class ProjectileManager {
   spawn(origin, dir, damage, knock, color = '#ffd666', kind = 'bolt') {
     let mesh;
     if (kind === 'arrow') {
-      mesh = this._arrowTemplate().clone('arrow');
+      const template = this.arrowTemplate || this._arrowTemplate();
+      mesh = template.clone('arrow');
       mesh.setEnabled(true);
+      for (const c of mesh.getChildMeshes()) c.setEnabled(true);
       mesh.rotation.y = Math.atan2(dir.x, dir.z);
     } else {
       mesh = MeshBuilder.CreateSphere('bullet', { diameter: 0.18, segments: 6 }, this.scene);

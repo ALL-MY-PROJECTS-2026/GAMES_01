@@ -1,4 +1,7 @@
-import { TransformNode, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
+import {
+  TransformNode, MeshBuilder, StandardMaterial, Color3, SceneLoader
+} from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 
 export const WEAPONS = {
   punch: { name: '권법', icon: '👊', slot: 2, type: 'melee', damage: 12, range: 2.4, arcDot: 0.25, cd: 0.38, hitDelay: 0.16, knock: 9, lunge: 3.5, animScale: 2.0 },
@@ -15,6 +18,29 @@ function mat(scene, name, hex) {
 
 // 칼끝까지의 길이 — 궤적(트레일) 계산에 쓴다
 export const SWORD_TIP_Y = 1.72;
+
+/**
+ * KayKit 무기 모델을 불러와 지정한 부모에 붙인다.
+ * 실패하면 null을 돌려주고, 호출부는 절차적 메시로 대체한다.
+ */
+export async function loadKitMesh(scene, file, { height = null } = {}) {
+  try {
+    const res = await SceneLoader.ImportMeshAsync('', 'models/kit/', file, scene);
+    const root = new TransformNode('kit_' + file, scene);
+    for (const m of res.meshes) {
+      if (!m.parent) m.parent = root;
+      m.isPickable = false;
+    }
+    if (height) {
+      const { min, max } = root.getHierarchyBoundingVectors(true);
+      const h = max.y - min.y;
+      if (h > 0.001) root.scaling.setAll(height / h);
+    }
+    return root;
+  } catch (e) {
+    return null;
+  }
+}
 
 export function makeSwordMesh(scene) {
   const g = new TransformNode('sword', scene);
