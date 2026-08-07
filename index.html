@@ -245,6 +245,31 @@
     @keyframes pickIn { from { opacity: 0; transform: translateX(14px); } }
     @keyframes pickOut { to { opacity: 0; transform: translateX(14px); } }
 
+    /* ── 채팅 (좌하단) ── */
+    #chat { position: absolute; left: 16px; bottom: 16px; width: 320px; max-width: 34vw;
+      pointer-events: none; transition: opacity 0.4s; }
+    #chat.faded { opacity: 0.35; }
+    #chat-log { display: flex; flex-direction: column; gap: 3px; max-height: 168px;
+      overflow-y: auto; overflow-x: hidden; padding: 8px 10px; border-radius: var(--radius);
+      background: rgba(17,20,27,0.55); border: 1px solid transparent;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; }
+    #chat.open #chat-log { background: var(--panel); border-color: var(--edge);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    #chat-log::-webkit-scrollbar { width: 5px; }
+    #chat-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    .chat-line { font-size: 12px; line-height: 1.45; color: var(--text); word-break: break-word;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.85); }
+    .chat-line b { color: #8fa8ff; font-weight: 700; margin-right: 3px; }
+    .chat-line.me b { color: var(--accent); }
+    .chat-line.system { color: var(--muted); font-size: 11.5px; font-style: italic; }
+    #chat-input { display: none; width: 100%; margin-top: 6px; padding: 7px 10px;
+      border-radius: 8px; border: 1px solid var(--accent); background: rgba(17,20,27,0.92);
+      color: var(--text); font-size: 12.5px; font-family: inherit; pointer-events: auto;
+      backdrop-filter: blur(10px); }
+    #chat-input:focus { outline: none; box-shadow: 0 0 0 1px rgba(255,176,58,0.4); }
+    #chat-hint { font-size: 10.5px; color: var(--muted); margin-top: 5px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+
     /* ── 멀티플레이 ── */
     #multi { position: absolute; top: 58px; right: 16px; padding: 10px 12px; width: 214px;
       pointer-events: auto; font-size: 11.5px; }
@@ -336,6 +361,11 @@
       <div id="gold-row"><span id="gold-amount">0</span> G<span class="invkey">I</span> 인벤토리<span class="invkey">K</span> 수련 <span id="skill-pts"></span></div>
     </div>
     <div id="hint" class="panel">좌클릭 이동·공격 · 술법 선택 후 우클릭 시전 · Space 회피 · C 방어 · 2/3/4 무기 · F1/F2 술법 · 1 회복 · K 수련 · E 대화</div>
+    <div id="chat">
+      <div id="chat-log"></div>
+      <input id="chat-input" maxlength="120" placeholder="메시지 입력 후 Enter (Esc 취소)" autocomplete="off" />
+      <div id="chat-hint"><b>Enter</b> 채팅</div>
+    </div>
     <div id="pickup-layer"></div>
     <div id="autohunt" class="panel"><b>V</b> 자동 사냥</div>
     <div id="multi" class="panel">

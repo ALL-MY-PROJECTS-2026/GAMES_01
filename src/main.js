@@ -33,6 +33,7 @@ import { SPELLS, SPELL_ORDER } from './core/spells.js';
 import { net } from './net/net.js';
 import { GhostManager } from './net/ghosts.js';
 import { initInventory, addItem, renderInventory } from './ui/inventory.js';
+import { initChat, isChatOpen, openChat, closeChat, pushChat, updateChat } from './ui/chat.js';
 
 async function boot() {
   setLoadingTotal(5);
@@ -147,6 +148,11 @@ async function boot() {
   initShop();
   initSkills();
   initSpellBar();
+  const myName = CHARACTERS[charKey].name;
+  initChat((text) => {
+    pushChat(myName, text, 'me');
+    if (net.connected) net.broadcast({ t: 'chat', n: myName, m: text });
+  });
   // 소지품에서 소모품을 눌렀을 때
   initInventory((def) => {
     if (def.use === 'heal') {
@@ -174,6 +180,9 @@ async function boot() {
   const weaponKeys = { Digit2: 'punch', Digit3: 'sword', Digit4: 'gun' };
   setActiveWeapon(player.weapon);
   window.addEventListener('keydown', (e) => {
+    // 채팅 입력 중에는 게임 단축키가 먹지 않는다
+    if (isChatOpen()) return;
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); openChat(); return; }
     if (e.code === 'KeyI') { renderInventory(); toggleInventory(); }
     if (e.code === 'KeyK') toggleSkills();
     if (e.code === 'F1' || e.code === 'F2') {
@@ -218,18 +227,24 @@ async function boot() {
     if (net.connected) {
       net.leave();
       ghosts.clear();
+      pushChat(null, '방에서 나왔습니다', 'system');
     } else {
       const code = (mRoom.value || '').trim();
       if (!code) { mRoom.focus(); return; }
       net.join(code);
+      pushChat(null, `'${code}' 방에 들어왔습니다`, 'system');
     }
     renderNetStatus();
   });
   // 입력창에 포커스가 있을 때 게임 단축키가 먹지 않게
   mRoom.addEventListener('keydown', (e) => e.stopPropagation());
 
-  net.onPeerJoin = renderNetStatus;
-  net.onPeerLeave = (id) => { ghosts.remove(id); renderNetStatus(); };
+  net.onPeerJoin = () => { pushChat(null, '동료가 들어왔습니다', 'system'); renderNetStatus(); };
+  net.onPeerLeave = (id) => {
+    ghosts.remove(id);
+    pushChat(null, '동료가 나갔습니다', 'system');
+    renderNetStatus();
+  };
 
   // 비호스트: 호스트가 보낸 몬스터 상태를 그대로 반영한다
   net.onMonsterSnapshot = (snap) => {
@@ -270,6 +285,10 @@ async function boot() {
     const gh = ghosts.map.get(peerId);
     if (gh && e.r !== undefined) { gh.target.ry = e.r; gh.group.rotation.y = e.r; }
 
+    if (e.t === 'chat') {
+      pushChat(e.n || '동료', e.m, 'peer');
+      return;
+    }
     if (e.t === 'atk') {
       if (gh) gh.playOnce(e.k, e.s || 1, e.f || 0, e.o === undefined ? 1 : e.o);
       const color = e.w === 'punch' ? '#ffd23e' : e.w === 'sword' ? '#cfe4ff' : '#ffb03a';
@@ -385,7 +404,7 @@ async function boot() {
         at && !at.dead ? at.group.position : null
       );
     }
-    player.update(d, talking ? idleInput : input, camRig);
+    player.update(d, (talking || isChatOpen()) ? idleInput : input, camRig);
 
     const handleHit = (m, killed) => {
       if (killed) {
@@ -469,6 +488,7 @@ async function boot() {
       camRig.cam.position.z += (Math.random() - 0.5) * k;
       if (juice.shakeT <= 0) juice.shakeMag = 0;
     }
+    updateChat(delta);
     minimap.update();
   }
 

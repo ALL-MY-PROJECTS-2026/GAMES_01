@@ -5,8 +5,10 @@ import { WORLD_HALF } from './ground.js';
 import { loadKitMesh } from '../player/weapons.js';
 import { makeTracerTexture, makeGlowTexture } from './vfx_textures.js';
 
-const SPEED = 42;
+const SPEED = 42;          // 술법탄 — 즉발감이 중요
+const ARROW_SPEED = 27;    // 화살 — 눈으로 좇을 수 있어야 한다
 const LIFE = 0.9;
+const ARROW_LIFE = 1.4;
 
 export class ProjectileManager {
   constructor(scene, obstacles) {
@@ -68,7 +70,7 @@ export class ProjectileManager {
   // KayKit 화살을 미리 불러 원본으로 삼는다 (실패 시 절차적 화살을 그대로 사용)
   async _loadKitArrow() {
     // 캐릭터(1.85)와 견줘 어색하지 않은 크기
-    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 1.15 });
+    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 1.5 });
     if (!kit) return;
     // 모델의 긴 축을 진행 방향(+Z)에 맞춘다
     kit.rotation.x = Math.PI / 2;
@@ -88,7 +90,7 @@ export class ProjectileManager {
     }
 
     // 화살촉 불빛 — 눈이 따라갈 작은 점 하나면 충분하다 (긴 광선은 긁힌 자국처럼 보인다)
-    const tip = MeshBuilder.CreatePlane('arrowTip', { size: 0.62 }, this.scene);
+    const tip = MeshBuilder.CreatePlane('arrowTip', { size: 1.15 }, this.scene);
     const tipMat = new StandardMaterial('arrowTipMat', this.scene);
     tipMat.emissiveColor = Color3.FromHexString('#ffd27a');
     tipMat.diffuseColor = new Color3(0, 0, 0);
@@ -98,10 +100,10 @@ export class ProjectileManager {
     tipMat.emissiveTexture = this.glowTex;
     tipMat.opacityTexture = this.glowTex;
     tipMat.alphaMode = Engine.ALPHA_ADD;
-    tipMat.alpha = 0.9;
+    tipMat.alpha = 1;
     tip.material = tipMat;
     tip.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    tip.position.z = 0.4;
+    tip.position.z = 0.5;
     tip.isPickable = false;
     tip.applyFog = false;
     tip.parent = holder;
@@ -185,12 +187,13 @@ export class ProjectileManager {
     }
     mesh.applyFog = false;
     mesh.position.copyFrom(origin);
+    const spd = kind === 'arrow' ? ARROW_SPEED : SPEED;
     this.list.push({
       mesh,
-      vx: dir.x * SPEED,
-      vz: dir.z * SPEED,
+      vx: dir.x * spd,
+      vz: dir.z * spd,
       dirN: { x: dir.x, z: dir.z },
-      life: LIFE,
+      life: kind === 'arrow' ? ARROW_LIFE : LIFE,
       damage,
       knock,
       visual,
@@ -215,9 +218,9 @@ export class ProjectileManager {
       if (p.trailT !== undefined) {
         p.trailT -= delta;
         if (p.trailT <= 0 && this.vfx) {
-          p.trailT = 0.035;
+          p.trailT = 0.022;
           this.vfx.sparks({ x: pos.x, y: pos.y - 0.9, z: pos.z },
-            { count: 2, color: '#ffd27a', power: 0.7, size: 0.13 });
+            { count: 3, color: '#ffd27a', power: 0.9, size: 0.22 });
         }
       }
 
