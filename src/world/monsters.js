@@ -255,6 +255,8 @@ class Monster {
     this.flashT = 0;
     this.velY = 0;
     this.deathT = 0;
+    this.slowT = 0;
+    this.slowMul = 1;
     this.wanderT = 0;
     this.wanderDir = new Vector3(0, 0, 0);
     this.knock = new Vector3(0, 0, 0);
@@ -402,6 +404,9 @@ class Monster {
   }
 
   update(delta, targets, obstacles) {
+    // 빙결 둔화 — 지속 동안 이동이 느려진다
+    if (this.slowT > 0) this.slowT -= delta;
+    const slow = this.slowT > 0 ? (this.slowMul || 0.5) : 1;
     if (this.dead) {
       if (this.deathT > 0) {
         this.deathT -= delta;
@@ -498,8 +503,8 @@ class Monster {
       if (rng) {
         // 원거리형: 사거리 안이면 멈추고, 너무 붙으면 뒷걸음질친다
         if (dist > this.cfg.attackRange * 0.85) {
-          pos.x += nx * this.cfg.speed * delta;
-          pos.z += nz * this.cfg.speed * delta;
+          pos.x += nx * this.cfg.speed * slow * delta;
+          pos.z += nz * this.cfg.speed * slow * delta;
           this._moveState = 'run';
         } else if (dist < rng.keepDistance) {
           pos.x -= nx * this.cfg.speed * 0.85 * delta;
@@ -509,8 +514,8 @@ class Monster {
           this._moveState = 'idle';
         }
       } else if (dist > this.cfg.attackRange * 0.8) {
-        pos.x += nx * this.cfg.speed * delta;
-        pos.z += nz * this.cfg.speed * delta;
+        pos.x += nx * this.cfg.speed * slow * delta;
+        pos.z += nz * this.cfg.speed * slow * delta;
         this._moveState = 'run';
       } else {
         this._moveState = 'idle';

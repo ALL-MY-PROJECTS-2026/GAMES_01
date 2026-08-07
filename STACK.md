@@ -193,8 +193,8 @@ Kenney를 섞을 땐 UV를 KayKit 아틀라스로 옮겨야 통합이 유지된�
 | 유형 | 방식 | Babylon 대응 | 상태 |
 |---|---|---|---|
 | **A. 바닥 마법진** | 평면 + UV 회전, 링 2개 역방향 | `CreateDisc` + `rotation.y` | ✅ |
-| **B. 오라/실드** | 구체 + 프레넬, `BackSide` | `CreateSphere` + `sideOrientation: BACKSIDE` | ⬜ |
-| **C. 발사체** | 코어 메시 + 트레일, **풀링 필수** | `CreateSphere` + 리본 | 🔶 |
+| **B. 오라/실드** | 구체 + 프레넬, `BackSide` | `CreateSphere` + `sideOrientation: BACKSIDE` | ✅ |
+| **C. 발사체** | 코어 메시 + 트레일, **풀링 필수** | `CreateSphere` + 리본 | ✅ |
 | **D. 폭발/타격** | 스프라이트 플립북 (또는 확대+페이드) | 빌보드 평면 | ✅ |
 | **E. 검기/슬래시** | 부채꼴 `RingGeometry`, thetaLength 0→최대 | `CreateDisc(arc)` | ✅ |
 | **F. 앰비언트** | `Points` 하나, 셰이더에서 위치 계산 | `ParticleSystem` | ⬜ |

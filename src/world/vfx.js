@@ -58,6 +58,24 @@ export class VFX {
       r.setEnabled(false);
       return r;
     });
+    // 오라: 구체의 안쪽 면만 그려서 캐릭터를 덮지 않는다
+    this.spherePool = new Pool(scene, (s) => {
+      const sp = MeshBuilder.CreateSphere('vfxAura',
+        { diameter: 2, segments: 16, sideOrientation: Mesh.BACKSIDE }, s);
+      sp.isPickable = false;
+      sp.applyFog = false;
+      sp.material = vfxMaterial(s, 'aura' + Math.random(), '#ffffff');
+      sp.setEnabled(false);
+      return sp;
+    });
+    this.beamPool = new Pool(scene, (s) => {
+      const b = MeshBuilder.CreateBox('vfxBeam', { size: 1 }, s);
+      b.isPickable = false;
+      b.applyFog = false;
+      b.material = vfxMaterial(s, 'beam' + Math.random(), '#ffffff');
+      b.setEnabled(false);
+      return b;
+    });
     this.puffPool = new Pool(scene, (s) => {
       const p = MeshBuilder.CreatePlane('vfxPuff', { size: 1 }, s);
       p.billboardMode = Mesh.BILLBOARDMODE_ALL;
@@ -127,6 +145,28 @@ export class VFX {
     this._push({ mesh, pool: this.discPool, t: 0, dur, kind: 'shock', base: radius });
   }
 
+  /** B. 오라/실드 — 안쪽 면을 그려 캐릭터를 가리지 않는다. follow를 주면 따라다닌다 */
+  aura(follow, { radius = 1.4, color = '#7fb0ff', dur = 6 } = {}) {
+    const mesh = this.spherePool.take();
+    this._tint(mesh, color);
+    mesh.scaling.setAll(radius);
+    this._push({ mesh, pool: this.spherePool, t: 0, dur, kind: 'aura', base: radius, follow });
+    return mesh;
+  }
+
+  /** 연쇄 번개 — 두 지점을 잇는 얇은 기둥 */
+  beam(from, to, { width = 0.18, color = '#a9d4ff', dur = 0.22 } = {}) {
+    const mesh = this.beamPool.take();
+    this._tint(mesh, color);
+    const dx = to.x - from.x;
+    const dz = to.z - from.z;
+    const len = Math.max(0.001, Math.hypot(dx, dz));
+    mesh.position.set((from.x + to.x) / 2, 1.1, (from.z + to.z) / 2);
+    mesh.rotation.y = Math.atan2(dx, dz);
+    mesh.scaling.set(width, width, len);
+    this._push({ mesh, pool: this.beamPool, t: 0, dur, kind: 'beam' });
+  }
+
   update(delta) {
     for (let i = this.live.length - 1; i >= 0; i--) {
       const e = this.live[i];
@@ -147,6 +187,16 @@ export class VFX {
       } else if (e.kind === 'shock') {
         e.mesh.scaling.setAll(e.base * (0.2 + 0.8 * p));
         e.mesh.material.alpha = (1 - p) * 0.8;
+      } else if (e.kind === 'aura') {
+        if (e.follow) {
+          e.mesh.position.set(e.follow.position.x, e.follow.position.y + 1.0, e.follow.position.z);
+        }
+        // 숨쉬듯 맥동하고 끝에서만 사라진다
+        const pulse = 1 + Math.sin(e.t * 6) * 0.045;
+        e.mesh.scaling.setAll(e.base * pulse);
+        e.mesh.material.alpha = 0.3 * (p > 0.85 ? (1 - p) / 0.15 : 1);
+      } else if (e.kind === 'beam') {
+        e.mesh.material.alpha = 1 - p;
       }
 
       if (p >= 1) {

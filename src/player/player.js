@@ -96,6 +96,9 @@ export class Player {
     this.spellCdMax = {};
     this.groundAreas = [];
     this.vfx = null;
+    this.nearbyMonsters = null;   // main 루프가 매 프레임 넣어준다
+    this.wardT = 0;
+    this.wardMul = 1;
     this._dodgeDir = new Vector3(0, 0, 0);
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
@@ -351,6 +354,8 @@ export class Player {
       }
     }
 
+    // 결계 버프: 받는 피해 추가 감소
+    if (this.wardT > 0) amount *= this.wardMul;
     // 체력(VIT) 스탯: 받는 피해 감소 (최소 1)
     amount = Math.max(1, Math.round(amount * damageTakenMul()));
     this.hp = Math.max(0, this.hp - amount);
@@ -394,6 +399,91 @@ export class Player {
     setMP(Math.round(this.mp), this.maxMp);
     const damage = Math.round((s.baseDamage + stats.level * s.perLevel)
       * this.charCfg.magicMul * magicDamageMul());
+
+    // 결계 — 자기 버프. 오라를 두르고 지속 동안 받는 피해를 줄인다
+    if (s.kind === 'buff') {
+      this.play('cast', true, 1.5);
+      this.lockTimer = 0.4;
+      sfx.levelup();
+      this.wardT = s.duration;
+      this.wardMul = s.damageTakenMul;
+      if (this.vfx) {
+        this.wardAura = this.vfx.aura(this.group, { radius: 1.5, color: s.color, dur: s.duration });
+        this.vfx.circle(this.group.position, { radius: 2.4, color: s.color, dur: 1.1 });
+      }
+      return true;
+    }
+
+    // 빙백진 — 자기중심 폭발. 주변을 얼려 밀쳐낸다
+    if (s.kind === 'nova') {
+      this.play('cast', true, 1.7);
+      this.lockTimer = 0.4;
+      sfx.punchHeavy();
+      shake(0.3, 0.24);
+      const origin = this.group.position;
+      if (this.vfx) {
+        this.vfx.shockwave(origin, { radius: s.radius, color: s.color, dur: 0.5 });
+        this.vfx.circle(origin, { radius: s.radius * 0.7, color: s.color, dur: 0.8 });
+        this.vfx.burst(origin, { size: 3.2, color: s.color, dur: 0.35 });
+      }
+      for (const m of (this.pendingList || this.nearbyMonsters || [])) {
+        if (m.dead) continue;
+        const dx = m.group.position.x - origin.x;
+        const dz = m.group.position.z - origin.z;
+        if (dx * dx + dz * dz > s.radius * s.radius) continue;
+        const d = Math.max(0.001, Math.hypot(dx, dz));
+        const killed = m.takeDamage(damage, { x: dx / d, z: dz / d }, s.knock, s.knockUp);
+        this.popDamage(m, damage, true);
+        m.slowT = s.slowDuration;
+        m.slowMul = s.slowMul;
+        if (this.onKill && killed) this.onKill(m);
+        if (this.vfx) this.vfx.burst(m.group.position, { size: 1.4, color: s.color, dur: 0.28 });
+      }
+      return true;
+    }
+
+    // 귀뢰 — 가장 가까운 적에서 시작해 인접한 적으로 번개가 튄다
+    if (s.kind === 'chain') {
+      this.play('cast', true, 1.8);
+      this.lockTimer = 0.35;
+      sfx.shoot();
+      const pool = (this.nearbyMonsters || []).filter((m) => !m.dead);
+      let from = { x: this.group.position.x, z: this.group.position.z };
+      const hitSet = new Set();
+      let dmg = damage;
+      for (let i = 0; i < s.maxChains; i++) {
+        const reach = i === 0 ? s.range : s.chainRange;
+        let best = null;
+        let bd = reach;
+        for (const m of pool) {
+          if (hitSet.has(m)) continue;
+          const d = Math.hypot(m.group.position.x - from.x, m.group.position.z - from.z);
+          if (d < bd) { bd = d; best = m; }
+        }
+        if (!best) break;
+        hitSet.add(best);
+        if (this.vfx) {
+          this.vfx.beam(from, best.group.position, { color: s.color, dur: 0.22 });
+          this.vfx.burst(best.group.position, { size: 1.5, color: s.color, dur: 0.26 });
+        }
+        const dx = best.group.position.x - from.x;
+        const dz = best.group.position.z - from.z;
+        const d = Math.max(0.001, Math.hypot(dx, dz));
+        const killed = best.takeDamage(Math.round(dmg), { x: dx / d, z: dz / d }, s.knock, 0);
+        this.popDamage(best, Math.round(dmg), i === 0);
+        if (this.onKill && killed) this.onKill(best);
+        from = { x: best.group.position.x, z: best.group.position.z };
+        dmg *= s.falloff;
+      }
+      if (hitSet.size === 0) {
+        // 맞은 적이 없으면 자원을 돌려준다
+        this.mp += s.cost;
+        this.spellCd[s.key] = 0;
+        setMP(Math.round(this.mp), this.maxMp);
+        return false;
+      }
+      return true;
+    }
 
     // 지정 지점 술법: 바닥 마법진을 깔고 장판을 남긴다
     if (s.kind === 'ground') {
@@ -577,6 +667,11 @@ export class Player {
       this.pendingWeaponKey = this.weapon;
       this.play(a.key, true, a.speed * aspd, fromFrac, toFrac);
       this.trail.start();
+      // E. 검기 — 휘두르는 궤적을 부채꼴로 표시 (STACK.md §9 우선순위 2)
+      if (this.vfx) {
+        this.vfx.slash(this.group.position, this.group.rotation.y,
+          { radius: w.range * 1.05, color: '#cfe4ff', dur: 0.24 });
+      }
       sfx.swing();
     }
   }
@@ -772,6 +867,10 @@ export class Player {
       for (const k of Object.keys(this.spellCd)) {
         this.spellCd[k] = Math.max(0, this.spellCd[k] - delta);
       }
+    }
+    if (this.wardT > 0) {
+      this.wardT -= delta;
+      if (this.wardT <= 0) this.wardAura = null;   // VFX가 스스로 회수한다
     }
     if (this.mp < this.maxMp) {
       this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);

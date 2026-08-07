@@ -176,6 +176,9 @@ async function boot() {
       d = delta * 0.06;
     }
 
+    // 자기중심·연쇄 술법이 참조할 대상 목록
+    player.nearbyMonsters = monsters.list;
+
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
