@@ -9,7 +9,7 @@ import {
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
-import { setHP, setMP } from '../ui/hud.js';
+import { setHP, setMP, showCombo } from '../ui/hud.js';
 import { weaponDamage, stats } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
@@ -20,12 +20,16 @@ const GRAVITY = 30;
 const JUMP_SPEED = 9.5;
 const MAGIC_COST = 20;
 const MAGIC_CD = 0.8;
-const COMBO_WINDOW = 0.9;
+const COMBO_WINDOW = 1.1;
+// 권법 5단 연계: 잽 → 잽 → 훅 → 어퍼 → 붕권(마무리)
 const PUNCH_COMBO = [
-  { dmgMul: 0.85, knock: 3.5, cd: 0.3, lunge: 3.5, animSpeed: 2.2 },
-  { dmgMul: 1.0, knock: 4.5, cd: 0.3, lunge: 3.8, animSpeed: 2.4 },
-  { dmgMul: 1.7, knock: 16, cd: 0.55, lunge: 5.5, animSpeed: 1.7 }
+  { dmgMul: 0.8, knock: 3, cd: 0.26, lunge: 3.6, animSpeed: 2.4 },
+  { dmgMul: 0.9, knock: 3.5, cd: 0.26, lunge: 3.8, animSpeed: 2.4 },
+  { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, animSpeed: 2.2 },
+  { dmgMul: 1.25, knock: 7, cd: 0.34, lunge: 4.6, animSpeed: 2.0 },
+  { dmgMul: 2.0, knock: 18, cd: 0.6, lunge: 6.0, animSpeed: 1.6 }
 ];
+const FINISHER_STEP = PUNCH_COMBO.length - 1;
 const LOOPING = new Set(['Idle', 'Walking', 'Running']);
 const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
 
@@ -288,12 +292,13 @@ export class Player {
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
     } else if (this.weapon === 'punch') {
-      const step = this.comboTimer > 0 ? (this.comboStep + 1) % 3 : 0;
+      const step = this.comboTimer > 0 ? (this.comboStep + 1) % PUNCH_COMBO.length : 0;
       const st = PUNCH_COMBO[step];
       this.comboStep = step;
       this.comboTimer = COMBO_WINDOW;
+      this.pendingComboStep = step;
 
-      const fin = step === 2 ? finisherMods(stats.skills) : { dmgMul: 1, knockMul: 1 };
+      const fin = step === FINISHER_STEP ? finisherMods(stats.skills) : { dmgMul: 1, knockMul: 1 };
       this.attackCd = st.cd;
       this.lockTimer = this.punchClipDur / st.animSpeed;
       this.currentLunge = st.lunge;
@@ -307,7 +312,7 @@ export class Player {
       };
       this.pendingWeaponKey = this.weapon;
       this.play('Punch', true, st.animSpeed);
-      if (step === 2) sfx.punchHeavy();
+      if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {
       this.lockTimer = this.punchClipDur / w.animScale;
@@ -329,6 +334,7 @@ export class Player {
       0,
       Math.cos(this.group.rotation.y)
     );
+    let hitAny = false;
     for (const m of monsters) {
       if (m.dead) continue;
       const to = this._right.copyFrom(m.group.position).subtractInPlace(this.group.position);
@@ -345,12 +351,16 @@ export class Player {
         fwd,
         w.knock
       );
+      hitAny = true;
       if (killed) {
         sfx.kill();
         if (this.onKill) this.onKill(m);
       } else {
         sfx.hit();
       }
+    }
+    if (hitAny && (this.pendingWeaponKey || this.weapon) === 'punch') {
+      showCombo(this.pendingComboStep + 1, this.pendingComboStep === FINISHER_STEP);
     }
   }
 

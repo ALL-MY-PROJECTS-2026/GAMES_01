@@ -67,7 +67,8 @@ async function boot() {
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.button !== 2) return;
     if (isDialogOpen() || isShopOpen()) return;
-    const pick = scene.pick(scene.pointerX, scene.pointerY);
+    // 멀티 카메라(미니맵) 환경에서는 픽 카메라를 반드시 명시해야 한다
+    const pick = scene.pick(scene.pointerX, scene.pointerY, undefined, false, camRig.cam);
     if (!pick || !pick.hit) return;
     const mon = pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.monster;
 

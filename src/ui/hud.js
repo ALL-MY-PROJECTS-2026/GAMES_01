@@ -32,7 +32,7 @@ export function initHUD() {
   s1.title = '혼백 (HP +15)';
 
   const weapons = [
-    [2, '👊', '권법 — 3단 콤보, 빠른 기본 공격'],
+    [2, '👊', '권법 — 5단 연계 콤보 (잽·잽·훅·어퍼·붕권)'],
     [3, '🗡️', '퇴마검 — 넓은 범위, 강한 넉백'],
     [4, '🧧', '부적 — 원거리 연사']
   ];
@@ -115,6 +115,21 @@ export function flashLevelUp(level) {
   el.classList.remove('show');
   void el.offsetWidth;
   el.classList.add('show');
+}
+
+let comboHideT = null;
+
+export function showCombo(n, finisher = false) {
+  const el = document.getElementById('combo');
+  if (!el) return;
+  el.textContent = finisher ? `${n}연격 붕권!` : `${n}연격`;
+  el.classList.toggle('finisher', finisher);
+  el.classList.remove('pop');
+  void el.offsetWidth;
+  el.classList.add('pop');
+  el.style.display = 'block';
+  if (comboHideT) clearTimeout(comboHideT);
+  comboHideT = setTimeout(() => { el.style.display = 'none'; }, 1200);
 }
 
 export function toggleInventory() {

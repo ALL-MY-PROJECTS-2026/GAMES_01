@@ -6,7 +6,7 @@ export const SKILL_TREES = {
     skills: [
       { key: 'punch_mastery', name: '연권 숙련', icon: '🥋', max: 3, info: '권법 피해 +12%씩', mods: { dmgMul: 0.12 } },
       { key: 'gale_step', name: '질풍보', icon: '💨', max: 3, info: '이동 속도 +5%씩', mods: { moveMul: 0.05 } },
-      { key: 'crusher', name: '붕권', icon: '💥', max: 3, info: '3타 마무리 피해 +25% · 넉백 +20%씩', mods: { finDmgMul: 0.25, finKnockMul: 0.2 } }
+      { key: 'crusher', name: '붕권', icon: '💥', max: 3, info: '연계 마무리(붕권) 피해 +25% · 넉백 +20%씩', mods: { finDmgMul: 0.25, finKnockMul: 0.2 } }
     ]
   },
   sword: {
