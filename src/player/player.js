@@ -10,7 +10,8 @@ import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
 import { setHP } from '../ui/hud.js';
-import { weaponDamage } from '../core/stats.js';
+import { weaponDamage, stats } from '../core/stats.js';
+import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
@@ -192,7 +193,7 @@ export class Player {
     if (this.attackCd > 0) return;
     if (!input.consumeAttack()) return;
 
-    const w = WEAPONS[this.weapon];
+    const w = applyWeaponSkills(WEAPONS[this.weapon], this.weapon, stats.skills);
     this.attackCd = w.cd;
 
     if (facePoint) {
@@ -232,6 +233,7 @@ export class Player {
       this.comboStep = step;
       this.comboTimer = COMBO_WINDOW;
 
+      const fin = step === 2 ? finisherMods(stats.skills) : { dmgMul: 1, knockMul: 1 };
       this.attackCd = st.cd;
       this.lockTimer = this.punchClipDur / st.animSpeed;
       this.currentLunge = st.lunge;
@@ -240,8 +242,8 @@ export class Player {
       this.pendingList = monsters;
       this.pendingWeapon = {
         ...w,
-        damage: Math.round(w.damage * st.dmgMul),
-        knock: st.knock
+        damage: Math.round(w.damage * st.dmgMul * fin.dmgMul),
+        knock: st.knock * fin.knockMul
       };
       this.pendingWeaponKey = this.weapon;
       this.play('Punch', true, st.animSpeed);
@@ -328,7 +330,7 @@ export class Player {
     if (moving) {
       dir.normalize();
       const run = running ? 2.1 : 1;
-      move.copyFrom(dir).scaleInPlace(this.walkSpeed * run * delta);
+      move.copyFrom(dir).scaleInPlace(this.walkSpeed * moveSpeedMul(stats.skills) * run * delta);
       if (this.lockTimer > 0) move.scaleInPlace(0.45);
 
       if (this.lockTimer <= 0) {

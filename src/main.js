@@ -8,10 +8,12 @@ import { DropManager } from './world/drops.js';
 import { ProjectileManager } from './world/projectiles.js';
 import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog.js';
 import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
+import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
 import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
 import { Player } from './player/player.js';
 import { CompanionManager } from './player/companions.js';
 import { WEAPONS } from './player/weapons.js';
+import { applyWeaponSkills } from './core/skills.js';
 import { ThirdPersonCamera } from './player/camera.js';
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
@@ -80,6 +82,7 @@ async function boot() {
   initHUD();
   initDialog();
   initShop();
+  initSkills();
   initAudio();
   bindPlayer(player);
   setMP(100, 100);
@@ -88,8 +91,9 @@ async function boot() {
   setActiveWeapon(player.weapon);
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyI') toggleInventory();
+    if (e.code === 'KeyK') toggleSkills();
     if (e.code === 'Digit1') useJelly();
-    if (e.code === 'Escape') closeShop();
+    if (e.code === 'Escape') { closeShop(); closeSkills(); }
     if (weaponKeys[e.code] && player.setWeapon(weaponKeys[e.code])) {
       setActiveWeapon(player.weapon);
     }
@@ -123,7 +127,7 @@ async function boot() {
       if (at.dead) {
         player.attackTarget = null;
       } else {
-        const w = WEAPONS[player.weapon];
+        const w = applyWeaponSkills(WEAPONS[player.weapon], player.weapon, stats.skills);
         const d = Math.hypot(
           at.group.position.x - player.group.position.x,
           at.group.position.z - player.group.position.z

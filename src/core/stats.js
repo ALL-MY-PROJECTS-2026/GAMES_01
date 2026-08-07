@@ -1,7 +1,9 @@
 import {
-  setHP, setMP, setLevel, setXP, setGold, setJellyCount, flashLevelUp, setWeaponUpgrade
+  setHP, setMP, setLevel, setXP, setGold, setJellyCount, flashLevelUp, setWeaponUpgrade,
+  setSkillPoints
 } from '../ui/hud.js';
 import { sfx } from './sfx.js';
+import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 export const MAX_UPGRADE = 5;
@@ -13,7 +15,9 @@ export const stats = {
   xpMax: 25,
   gold: 0,
   items: { jelly: 0 },
-  upgrades: { punch: 0, sword: 0, gun: 0 }
+  upgrades: { punch: 0, sword: 0, gun: 0 },
+  skillPoints: 0,
+  skills: {}
 };
 
 let playerRef = null;
@@ -27,6 +31,8 @@ export function save() {
       gold: stats.gold,
       jelly: stats.items.jelly,
       upgrades: stats.upgrades,
+      skillPoints: stats.skillPoints,
+      skills: stats.skills,
       weapon: playerRef ? playerRef.weapon : 'punch'
     }));
   } catch (e) { /* storage unavailable */ }
@@ -53,6 +59,11 @@ export function bindPlayer(player) {
     stats.gold = data.gold || 0;
     stats.items.jelly = data.jelly || 0;
     Object.assign(stats.upgrades, data.upgrades || {});
+    stats.skills = data.skills || {};
+    // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급
+    stats.skillPoints = data.skillPoints !== undefined
+      ? data.skillPoints
+      : Math.max(0, stats.level - 1 - totalSpent(stats.skills));
     player.maxHp = 100 + (stats.level - 1) * 10;
     player.hp = player.maxHp;
     if (data.weapon) player.setWeapon(data.weapon);
@@ -68,7 +79,22 @@ export function refreshAll() {
   setGold(stats.gold);
   setJellyCount(stats.items.jelly);
   for (const k of ['punch', 'sword', 'gun']) setWeaponUpgrade(k, stats.upgrades[k]);
+  setSkillPoints(stats.skillPoints);
   if (playerRef) setHP(playerRef.hp, playerRef.maxHp);
+}
+
+export function learnSkill(key) {
+  const def = findSkill(key);
+  if (!def) return { ok: false, reason: 'unknown' };
+  const lvl = stats.skills[key] || 0;
+  if (lvl >= def.max) return { ok: false, reason: 'max' };
+  if (stats.skillPoints <= 0) return { ok: false, reason: 'points' };
+  stats.skillPoints -= 1;
+  stats.skills[key] = lvl + 1;
+  sfx.levelup();
+  refreshAll();
+  save();
+  return { ok: true, level: stats.skills[key] };
 }
 
 export function weaponDamage(baseDamage, weaponKey) {
@@ -115,6 +141,7 @@ export function addXp(amount) {
     stats.xp -= stats.xpMax;
     stats.level += 1;
     stats.xpMax = Math.round(stats.xpMax * 1.4);
+    stats.skillPoints += 1;
     leveled = true;
     if (playerRef) {
       playerRef.maxHp += 10;

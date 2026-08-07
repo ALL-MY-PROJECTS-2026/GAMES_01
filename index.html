@@ -73,7 +73,24 @@
     .shop-max { font-size: 12px; font-weight: 700; color: #e8c25f; }
     .shop-hint { font-size: 11px; color: #8a7a55; text-align: center; margin-top: 4px; }
 
-    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); opacity: 0; pointer-events: none; }
+    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); opacity: 0; pointer-events: none; text-align: center; }
+    .lvup-sub { font-size: 14px; font-weight: 600; color: #e8dcc4; margin-top: 4px; }
+
+    #skillwin { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 420px; max-width: 92vw; max-height: 80vh; overflow-y: auto; padding: 14px 16px; pointer-events: auto; }
+    .skill-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: #e8c25f; }
+    #skill-close { border: 1px solid #c9a86a; background: transparent; border-radius: 6px; cursor: pointer; color: #c9a86a; font-size: 12px; padding: 2px 8px; }
+    #skill-points { font-size: 13px; color: #c9a86a; margin-bottom: 8px; font-weight: 700; }
+    .skill-tree-head { font-size: 13px; font-weight: 700; color: #e8c25f; margin: 10px 0 5px; border-bottom: 1px solid #55492e; padding-bottom: 3px; }
+    .skill-tree-head:first-child { margin-top: 0; }
+    .skill-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 7px 10px; margin-bottom: 5px; }
+    .skill-info { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+    .skill-icon { font-size: 18px; }
+    .skill-pips { color: #e8c25f; letter-spacing: 2px; }
+    .skill-desc { color: #b8a888; font-size: 11px; width: 100%; margin-left: 26px; }
+    .skill-btn { border: 1.5px solid #c9a86a; background: #4a3f22; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #e8dcc4; }
+    .skill-btn:disabled { opacity: 0.45; cursor: default; }
+    .skill-max { font-size: 12px; font-weight: 700; color: #e8c25f; }
+    #skill-pts { color: #e8c25f; font-weight: 700; }
     #levelup.show { animation: lvup 2.2s ease-out forwards; }
     @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
@@ -113,9 +130,9 @@
           <div class="bar"><div id="comp2-hp" class="fill"></div><div id="comp2-txt" class="txt"></div></div>
         </div>
       </div>
-      <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리</div>
+      <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리 · <span class="invkey">K</span> 스킬 <span id="skill-pts"></span></div>
     </div>
-    <div id="hint" class="panel">클릭 이동/공격 · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · F 공격 · 2/3/4 무기 · 1 혼백 · E 대화</div>
+    <div id="hint" class="panel">클릭 이동/공격 · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · F 공격 · 2/3/4 무기 · 1 혼백 · K 스킬 · E 대화</div>
     <div id="levelup"></div>
     <div id="inventory" class="panel">
       <div class="inv-title">인벤토리 <span id="inv-gold">0 G</span></div>
@@ -133,6 +150,12 @@
       <button id="shop-sell" class="shop-sellbtn">혼백 전부 팔기</button>
       <div id="shop-rows"></div>
       <div class="shop-hint">혼백과 골드로 무기에 신령한 기운을 불어넣으세요 (최대 +5)</div>
+    </div>
+    <div id="skillwin" class="panel">
+      <div class="skill-title">📖 수련 — 스킬 <button id="skill-close">✕</button></div>
+      <div id="skill-points">스킬 포인트 0</div>
+      <div id="skill-trees"></div>
+      <div class="shop-hint">레벨업마다 스킬 포인트 1 획득 · 원하는 유파의 기술만 골라 수련하세요</div>
     </div>
     <div id="dialog" class="panel">
       <div id="dialog-name"></div>

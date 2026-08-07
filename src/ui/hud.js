@@ -85,9 +85,15 @@ export function setJellyCount(n) {
   if (inv) inv.textContent = `x ${n}`;
 }
 
+export function setSkillPoints(n) {
+  const el = document.getElementById('skill-pts');
+  if (!el) return;
+  el.textContent = n > 0 ? `(+${n})` : '';
+}
+
 export function flashLevelUp(level) {
   const el = document.getElementById('levelup');
-  el.textContent = `LEVEL UP!  Lv.${level}`;
+  el.innerHTML = `LEVEL UP!  Lv.${level}<div class="lvup-sub">스킬 포인트 +1 — K 키로 배분</div>`;
   el.classList.remove('show');
   void el.offsetWidth;
   el.classList.add('show');
