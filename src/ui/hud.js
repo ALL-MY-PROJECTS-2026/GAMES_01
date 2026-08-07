@@ -156,6 +156,24 @@ export function setBossBar(boss) {
     `${Math.max(0, Math.ceil(boss.hp))} / ${boss.cfg.hp}`;
 }
 
+// 아이템 획득 알림 — 화면 우하단에 쌓였다 사라진다
+export function showPickup(item, amount) {
+  const layer = document.getElementById('pickup-layer');
+  if (!layer) return;
+  const el = document.createElement('div');
+  el.className = 'pickup';
+  el.innerHTML = `<span class="pk-icon">${item.icon}</span>${item.name} <b>+${amount}</b>`;
+  el.style.borderLeftColor = item.color;
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 2200);
+  while (layer.children.length > 5) layer.removeChild(layer.firstChild);
+}
+
+export function setAutoHunt(on) {
+  const el = document.getElementById('autohunt');
+  if (el) el.classList.toggle('on', on);
+}
+
 export function flashHurt() {
   const el = document.getElementById('hitflash');
   if (!el) return;

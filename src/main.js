@@ -19,7 +19,8 @@ import { ThirdPersonCamera } from './player/camera.js';
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import {
-  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity, setBossBar
+  initHUD, setMP, setHP, toggleInventory, setActiveWeapon, setPlayerIdentity, setBossBar,
+  showPickup, setAutoHunt
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
@@ -129,7 +130,7 @@ async function boot() {
     const cfg = m.cfg;
     addXp(cfg.xp);
     addGold(cfg.gold[0] + Math.floor(Math.random() * (cfg.gold[1] - cfg.gold[0] + 1)));
-    for (let i = 0; i < cfg.jelly; i++) drops.spawn(m.group.position);
+    drops.spawnFor(cfg, m.group.position, cfg.jelly);
   };
 
   initHUD();
@@ -155,12 +156,18 @@ async function boot() {
       e.preventDefault();
       selectSpellByIndex(e.code === 'F1' ? 0 : 1);
     }
+    if (e.code === 'KeyV') { autoHunt = !autoHunt; setAutoHunt(autoHunt); }
     if (e.code === 'Digit1') useJelly();
     if (e.code === 'Escape') { closeShop(); closeSkills(); }
     if (weaponKeys[e.code] && player.setWeapon(weaponKeys[e.code])) {
       setActiveWeapon(player.weapon);
     }
   });
+
+  // 자동 사냥 — 가장 가까운 적을 스스로 찾아 싸운다
+  let autoHunt = false;
+  const autoBtn = document.getElementById('autohunt');
+  if (autoBtn) autoBtn.addEventListener('click', () => { autoHunt = !autoHunt; setAutoHunt(autoHunt); });
 
   const talkHint = document.getElementById('talk-hint');
   const idleInput = {
@@ -194,6 +201,28 @@ async function boot() {
       talkHint.style.display = 'block';
     } else {
       talkHint.style.display = 'none';
+    }
+
+    // 자동 사냥: 대상이 없거나 죽었으면 가까운 적을 새로 고른다
+    if (autoHunt && !talking) {
+      const cur = player.attackTarget;
+      if (!cur || cur.dead) {
+        let best = null;
+        let bd = 40;
+        for (const m of monsters.list) {
+          if (m.dead) continue;
+          if (m.cfg.isBoss && stats.level < 8) continue;   // 저레벨에 보스로 돌진하지 않게
+          const dd = Math.hypot(m.group.position.x - player.group.position.x,
+                                m.group.position.z - player.group.position.z);
+          if (dd < bd) { bd = dd; best = m; }
+        }
+        if (best) {
+          player.attackTarget = best;
+          player.moveTarget = null;
+        }
+      }
+      // 체력이 바닥나면 물러나 회복부터
+      if (player.hp < player.maxHp * 0.3 && stats.items.jelly > 0) useJelly();
     }
 
     const at = player.attackTarget;
@@ -249,8 +278,28 @@ async function boot() {
     companions.update(d, player, monsters.list, obstacles, projectiles, handleHit);
     projectiles.update(d, monsters.list, handleHit);
     npcs.update(delta, player);
-    drops.update(d, player, () => {
-      addJelly(1);
+    drops.update(d, player, (item) => {
+      if (!item) { addJelly(1); sfx.pickup(); return; }
+      const amt = Array.isArray(item.amount)
+        ? item.amount[0] + Math.floor(Math.random() * (item.amount[1] - item.amount[0] + 1))
+        : item.amount;
+      switch (item.effect) {
+        case 'jelly': addJelly(amt); break;
+        case 'gold': addGold(amt); break;
+        case 'heal':
+          player.hp = Math.min(player.maxHp, player.hp + amt);
+          setHP(player.hp, player.maxHp);
+          break;
+        case 'mana':
+          player.mp = Math.min(player.maxMp, player.mp + amt);
+          setMP(Math.round(player.mp), player.maxMp);
+          break;
+        case 'stamina':
+          player.stamina = player.maxStamina;
+          player.exhaustT = 0;
+          break;
+      }
+      showPickup(item, amt);
       sfx.pickup();
     });
     // 보스 HP바: 교전 거리 안에 살아있는 보스가 있을 때만

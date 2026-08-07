@@ -207,3 +207,28 @@ export function makeFireFieldTexture(scene, size = 256) {
   tex.hasAlpha = true;
   return tex;
 }
+
+/** 화살 예광 — 앞은 밝고 뒤로 갈수록 사라지는, 위아래로도 부드러운 띠 */
+export function makeTracerTexture(scene, w = 256, h = 64) {
+  const tex = new DynamicTexture('vfxTracer', { width: w, height: h }, scene, true);
+  const g = tex.getContext();
+  const img = g.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    // 세로: 가운데가 진하고 위아래로 부드럽게 사라진다
+    const ny = Math.abs((y / (h - 1)) * 2 - 1);
+    const vert = Math.pow(Math.max(0, 1 - ny), 1.7);
+    for (let x = 0; x < w; x++) {
+      // 가로: 앞(오른쪽)이 밝고 꼬리로 갈수록 옅어진다
+      const nx = x / (w - 1);
+      const head = Math.pow(nx, 2.4);
+      const a = Math.max(0, Math.min(1, head * vert));
+      const i = (y * w + x) * 4;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = a * 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  tex.update();
+  tex.hasAlpha = true;
+  return tex;
+}

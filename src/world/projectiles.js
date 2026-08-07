@@ -1,6 +1,9 @@
-import { MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode } from '@babylonjs/core';
+import {
+  MeshBuilder, StandardMaterial, Color3, Mesh, TransformNode, Engine
+} from '@babylonjs/core';
 import { WORLD_HALF } from './ground.js';
 import { loadKitMesh } from '../player/weapons.js';
+import { makeTracerTexture, makeGlowTexture } from './vfx_textures.js';
 
 const SPEED = 42;
 const LIFE = 0.9;
@@ -13,6 +16,7 @@ export class ProjectileManager {
     this.mats = {};
     this.arrowTemplate = null;
     this.hostile = [];   // 적이 쏜 투사체 — 플레이어를 노린다
+    this.glowTex = makeGlowTexture(scene);
     this._loadKitArrow();
   }
 
@@ -63,8 +67,8 @@ export class ProjectileManager {
 
   // KayKit 화살을 미리 불러 원본으로 삼는다 (실패 시 절차적 화살을 그대로 사용)
   async _loadKitArrow() {
-    // 바닥 위에서 잘 읽히도록 크게 만든다
-    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 1.5 });
+    // 캐릭터(1.85)와 견줘 어색하지 않은 크기
+    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 1.15 });
     if (!kit) return;
     // 모델의 긴 축을 진행 방향(+Z)에 맞춘다
     kit.rotation.x = Math.PI / 2;
@@ -72,23 +76,35 @@ export class ProjectileManager {
     kit.parent = holder;
     for (const m of kit.getChildMeshes()) m.applyFog = false;
 
-    // 발광 트레이서 — 화살 뒤로 늘어난 빛줄기라 배경과 구별된다
-    const glow = MeshBuilder.CreatePlane('arrowGlow', { width: 0.42, height: 2.2 }, this.scene);
-    const gm = new StandardMaterial('arrowGlowMat', this.scene);
-    gm.emissiveColor = Color3.FromHexString('#ffd666');
-    gm.diffuseColor = new Color3(0, 0, 0);
-    gm.specularColor = new Color3(0, 0, 0);
-    gm.disableLighting = true;
-    gm.backFaceCulling = false;
-    gm.alphaMode = 2;                 // ALPHA_ADD
-    gm.alpha = 0.85;
-    glow.material = gm;
-    // 평면을 지면에 눕힌다 — 로컬 +Y(긴 축)가 진행 방향 +Z로 간다
-    glow.rotation.x = Math.PI / 2;
-    glow.position.z = -0.6;           // 화살 뒤로 늘어진 빛줄기
-    glow.isPickable = false;
-    glow.applyFog = false;
-    glow.parent = holder;
+    // 풀밭 위에서 묻히지 않게 화살 본체를 또렷하게 — 밝은 자체발광 틴트
+    for (const m of kit.getChildMeshes()) {
+      const mat = m.material;
+      if (!mat) continue;
+      if (mat.albedoColor) {
+        mat.emissiveColor = Color3.FromHexString('#6b5228');
+      } else if (mat.diffuseColor) {
+        mat.emissiveColor = Color3.FromHexString('#6b5228');
+      }
+    }
+
+    // 화살촉 불빛 — 눈이 따라갈 작은 점 하나면 충분하다 (긴 광선은 긁힌 자국처럼 보인다)
+    const tip = MeshBuilder.CreatePlane('arrowTip', { size: 0.62 }, this.scene);
+    const tipMat = new StandardMaterial('arrowTipMat', this.scene);
+    tipMat.emissiveColor = Color3.FromHexString('#ffd27a');
+    tipMat.diffuseColor = new Color3(0, 0, 0);
+    tipMat.specularColor = new Color3(0, 0, 0);
+    tipMat.disableLighting = true;
+    tipMat.backFaceCulling = false;
+    tipMat.emissiveTexture = this.glowTex;
+    tipMat.opacityTexture = this.glowTex;
+    tipMat.alphaMode = Engine.ALPHA_ADD;
+    tipMat.alpha = 0.9;
+    tip.material = tipMat;
+    tip.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    tip.position.z = 0.4;
+    tip.isPickable = false;
+    tip.applyFog = false;
+    tip.parent = holder;
 
     holder.setEnabled(false);
     this.arrowTemplate = holder;
@@ -171,7 +187,8 @@ export class ProjectileManager {
       dirN: { x: dir.x, z: dir.z },
       life: LIFE,
       damage,
-      knock
+      knock,
+      trailT: kind === 'arrow' ? 0 : undefined
     });
   }
 
@@ -187,6 +204,16 @@ export class ProjectileManager {
       const pos = p.mesh.position;
       pos.x += p.vx * delta;
       pos.z += p.vz * delta;
+
+      // 지나간 자리에 작은 불티를 떨궈 궤적을 만든다
+      if (p.trailT !== undefined) {
+        p.trailT -= delta;
+        if (p.trailT <= 0 && this.vfx) {
+          p.trailT = 0.035;
+          this.vfx.sparks({ x: pos.x, y: pos.y - 0.9, z: pos.z },
+            { count: 2, color: '#ffd27a', power: 0.7, size: 0.13 });
+        }
+      }
 
       if (p.life <= 0 || Math.abs(pos.x) > WORLD_HALF + 4 || Math.abs(pos.z) > WORLD_HALF + 4) {
         this._remove(i);
