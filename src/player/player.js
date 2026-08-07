@@ -30,6 +30,10 @@ const DODGE_SPEED = 20;
 const DODGE_TIME = 0.32;
 const DODGE_IFRAME = 0.24;
 const DODGE_CD = 0.75;
+// 방패 방어 — 정면에서 오는 피해를 크게 줄인다. 이동은 느려지고 공격은 막힌다
+const BLOCK_REDUCTION = 0.25;   // 정면 피격 시 받는 피해 배율
+const BLOCK_MOVE_MUL = 0.42;
+const BLOCK_FRONT_DOT = 0.15;   // 이 값보다 정면이어야 막힌다
 const COMBO_WINDOW = 1.1;
 // 권법 5단 연계: 잽 → 되치기 → 훅(휘두르기) → 어퍼(도약) → 붕권(마무리)
 // 단계별로 클립·재생 구간·속도를 다르게 해서 모션을 구분한다
@@ -87,6 +91,7 @@ export class Player {
     this.dodgeT = 0;
     this.dodgeCd = 0;
     this.iframe = 0;
+    this.blocking = false;
     this._dodgeDir = new Vector3(0, 0, 0);
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
@@ -236,6 +241,23 @@ export class Player {
     gun.setEnabled(false);
     this.weaponMeshes = { sword, gun };
     this.setWeapon(this.weapon);
+
+    // 방패는 왼손 슬롯에 — 방어 중에만 보인다
+    const offBone = res.skeletons[0]
+      && res.skeletons[0].bones.find((b) => b.name === 'handslot.l');
+    if (offBone) {
+      const shield = await loadKitMesh(this.scene, 'shield_round.gltf', { height: 0.62 });
+      if (shield) {
+        shield.parent = offBone.getTransformNode();
+        shield.position.set(0, 0, 0);
+        shield.setEnabled(false);
+        this.shieldMesh = shield;
+      }
+    }
+  }
+
+  setShieldVisible(on) {
+    if (this.shieldMesh && this.shieldMesh.isEnabled() !== on) this.shieldMesh.setEnabled(on);
   }
 
   // 논리 키에 대응하는 클립의 재생 길이(초)
@@ -311,16 +333,35 @@ export class Player {
 
   takeDamage(amount, dir = null) {
     if (this.iframe > 0) return; // 회피 무적
+
+    // 방패: 공격이 정면에서 왔을 때만 막는다 (dir은 공격자→플레이어 방향)
+    let blocked = false;
+    if (this.blocking && dir) {
+      const fx = Math.sin(this.group.rotation.y);
+      const fz = Math.cos(this.group.rotation.y);
+      if (-(dir.x * fx + dir.z * fz) > BLOCK_FRONT_DOT) {
+        blocked = true;
+        amount *= BLOCK_REDUCTION;
+        this.play('blockHit', true, 1.4);
+        this.lockTimer = Math.max(this.lockTimer, 0.18);
+      }
+    }
+
     // 체력(VIT) 스탯: 받는 피해 감소 (최소 1)
     amount = Math.max(1, Math.round(amount * damageTakenMul()));
     this.hp = Math.max(0, this.hp - amount);
     setHP(this.hp, this.maxHp);
-    flashHurt();
-    shake(0.28, 0.2);
-    sfx.hurt();
+    if (blocked) {
+      shake(0.14, 0.12);
+      sfx.hit();
+    } else {
+      flashHurt();
+      shake(0.28, 0.2);
+      sfx.hurt();
+    }
     if (dir) {
       this.knockV.copyFromFloats(dir.x, 0, dir.z);
-      this.knockV.scaleInPlace(6);
+      this.knockV.scaleInPlace(blocked ? 2 : 6);
     }
     if (this.hp <= 0) {
       this.group.position.set(0, 0, 0);
@@ -372,7 +413,7 @@ export class Player {
   }
 
   tryAttack(input, monsters, camRig = null, facePoint = null) {
-    if (this.attackCd > 0) return;
+    if (this.attackCd > 0 || this.blocking || this.dodgeT > 0) return;
     if (!input.consumeAttack()) return;
 
     const w = applyWeaponSkills(WEAPONS[this.weapon], this.weapon, stats.skills);
@@ -582,6 +623,18 @@ export class Player {
     // 회피 대시 입력 (Space) — 대시 중에는 다른 이동을 받지 않는다
     if (input.consumeDodge && input.consumeDodge()) this.tryDodge(moving ? dir : null);
 
+    // 방어 유지 (마우스 가운데 버튼 또는 C) — 대시 중에는 방어 불가
+    const wantBlock = this.dodgeT <= 0 && input.pressed('KeyC');
+    if (wantBlock !== this.blocking) {
+      this.blocking = wantBlock;
+      if (wantBlock) {
+        this.comboStep = -1;
+        this.comboTimer = 0;
+      }
+    }
+    if (this.blocking) this.setShieldVisible(true);
+    else this.setShieldVisible(false);
+
     const move = this._move.setAll(0);
     if (this.dodgeT > 0) {
       this.dodgeT -= delta;
@@ -591,7 +644,7 @@ export class Player {
       this.speedFov = 0.2;
     } else if (moving) {
       dir.normalize();
-      const run = running ? 2.1 : 1;
+      const run = this.blocking ? BLOCK_MOVE_MUL : (running ? 2.1 : 1);
       move.copyFrom(dir).scaleInPlace(
         this.walkSpeed * moveSpeedMul(stats.skills) * moveSpeedAttrMul() * run * delta
       );
@@ -656,7 +709,8 @@ export class Player {
     }
 
     if (this.groups && this.onGround && this.lockTimer <= 0 && this.dodgeT <= 0) {
-      if (moving && running) this.play('run');
+      if (this.blocking) this.play('block');
+      else if (moving && running) this.play('run');
       else if (moving) this.play('walk');
       else this.play('idle');
     }
