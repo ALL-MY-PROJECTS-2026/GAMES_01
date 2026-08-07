@@ -9,6 +9,7 @@ import {
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from './ground.js';
+import { loadKitMesh } from '../player/weapons.js';
 
 const RED = Color3.FromHexString('#e24b4a');
 const ATTACK_INTERVAL = 1.2;
@@ -45,7 +46,12 @@ export const MONSTER_TYPES = {
       clips: {
         idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
         attack: '1H_Melee_Attack_Chop', hit: 'Hit_A', death: 'Death_A'
-      }
+      },
+      kitProps: [
+        { file: 'sword_1handed.gltf', height: 0.95 },
+        { file: 'axe_1handed.gltf', height: 0.85 },
+        { file: 'sword_2handed.gltf', height: 1.25 }
+      ]
     }
   },
   // 마검졸 — 마물이 아닌 인간 산적 (REFERENCE.md T1). 방패를 들고 끈질기게 파고든다
@@ -60,7 +66,13 @@ export const MONSTER_TYPES = {
         idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
         attack: '1H_Melee_Attack_Slice_Diagonal', hit: 'Hit_A', death: 'Death_A'
       },
-      props: ['1H_Sword', 'Round_Shield']
+      props: ['1H_Sword', 'Round_Shield'],
+      // 개체마다 다른 무기를 들려 같은 모델로 변형을 만든다 (REFERENCE.md의 리스킨 기법)
+      propVariants: [
+        ['1H_Sword', 'Round_Shield'],
+        ['2H_Sword'],
+        ['1H_Sword', 'Spike_Shield']
+      ]
     }
   },
   // 악귀 술사 — 거리를 두고 술법을 쏜다. 근접하면 물러난다
@@ -115,7 +127,11 @@ export const MONSTER_TYPES = {
       clips: {
         idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
         attack: 'Unarmed_Melee_Attack_Punch_A', hit: 'Hit_A', death: 'Death_A'
-      }
+      },
+      kitProps: [
+        { file: 'dagger.gltf', height: 0.55 },
+        { file: 'sword_1handed.gltf', height: 0.9 }
+      ]
     }
   }
 };
@@ -267,7 +283,10 @@ class Monster {
     holder.rotation.y = m.yaw || 0;
 
     // 모델 내장 무기 프롭은 기본적으로 끄고, 지정된 것만 켠다
-    const wanted = m.props || [];
+    const variants = m.propVariants;
+    const wanted = variants
+      ? variants[Math.floor(Math.random() * variants.length)]
+      : (m.props || []);
     for (const mesh of res.meshes) {
       if (shadow && mesh.getTotalVertices && mesh.getTotalVertices() > 0) shadow.addShadowCaster(mesh);
       mesh.metadata = { monster: this };
@@ -287,6 +306,23 @@ class Monster {
         ta.animation.blendingSpeed = 0.12;
       }
     }
+    // 내장 무기가 없는 모델(해골 등)은 kit 무기를 본에 직접 붙인다
+    const kit = m.kitProps;
+    if (kit && kit.length && res.skeletons[0]) {
+      const pick = kit[Math.floor(Math.random() * kit.length)];
+      if (pick) {
+        const bone = res.skeletons[0].bones.find((b) => b.name === (pick.bone || 'handslot.r'));
+        if (bone) {
+          const mesh = await loadKitMesh(this.scene, pick.file, { height: pick.height || 0.9 });
+          if (mesh) {
+            mesh.parent = bone.getTransformNode();
+            mesh.position.set(0, 0, 0);
+            if (shadow) for (const cm of mesh.getChildMeshes()) shadow.addShadowCaster(cm);
+          }
+        }
+      }
+    }
+
     this.playAnim('idle');
   }
 

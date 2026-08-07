@@ -175,17 +175,61 @@ Kenney를 섞을 땐 UV를 KayKit 아틀라스로 옮겨야 통합이 유지된�
 
 ---
 
-## 9. 이펙트
+## 9. 이펙트 (마법 VFX)
 
-| 용도 | 선택 | 상태 |
+### 결론 — **Effekseer를 쓰지 않는다.** 셰이더 + 메시 + 스프라이트로 직접 구현.
+
+| 판단 축 | Effekseer | 직접 구현 |
 |---|---|---|
-| 파티클 스프라이트 | Kenney Particle Pack (CC0) | ⬜ |
-| 파티클 시스템 | Babylon `ParticleSystem` | ⬜ |
-| 포스트프로세싱 | Babylon `DefaultRenderingPipeline` | ⬜ |
+| 번들 | WASM 런타임 추가 (수백 KB~) | **0KB** |
+| 아트 톤 | 화려한 파티클 — KayKit 플랫 셰이딩과 이질적 | 팔레트 그대로 사용 |
+| 모바일 | 파티클 오버드로우로 프레임 저하 | 메시 기반이라 저렴 |
+| 엔진 통합 | 렌더 상태 충돌 위험 | 없음 |
 
-**⚠️ 저폴리 + 플랫 셰이딩에 블룸·SSAO를 얹으면 스타일이 무너진다.**
-아웃라인이나 가벼운 비네트 정도로 제한할 것. 모바일에서 포스트프로세싱은 특히 비싸다.
-→ M3의 "화려한 술법 이펙트"는 이 제약 안에서 설계한다 ([REFERENCE.md](REFERENCE.md) §3 규칙과 함께 적용).
+**예외**: 이펙트가 게임의 핵심 셀링포인트가 될 때만 재검토.
+
+### 유형별 구현 방식 (three.js → Babylon.js 대응)
+
+| 유형 | 방식 | Babylon 대응 | 상태 |
+|---|---|---|---|
+| **A. 바닥 마법진** | 평면 + UV 회전, 링 2개 역방향 | `CreateDisc` + `rotation.y` | ✅ |
+| **B. 오라/실드** | 구체 + 프레넬, `BackSide` | `CreateSphere` + `sideOrientation: BACKSIDE` | ⬜ |
+| **C. 발사체** | 코어 메시 + 트레일, **풀링 필수** | `CreateSphere` + 리본 | 🔶 |
+| **D. 폭발/타격** | 스프라이트 플립북 (또는 확대+페이드) | 빌보드 평면 | ✅ |
+| **E. 검기/슬래시** | 부채꼴 `RingGeometry`, thetaLength 0→최대 | `CreateDisc(arc)` | ✅ |
+| **F. 앰비언트** | `Points` 하나, 셰이더에서 위치 계산 | `ParticleSystem` | ⬜ |
+
+**구현 순서**: A(마법진) → E(검기) → D(폭발) → C(발사체) → B(오라) → F(앰비언트)
+**1~3번까지가 외부 라이브러리 없이 가능하고 체감 효과의 대부분을 차지한다.**
+
+### 공통 규칙 (코드에서 강제)
+
+```js
+// VFX 머티리얼 표준 — src/world/vfx.js 의 vfxMaterial()
+mat.disableLighting = true;        // 씬 라이트에 반응하면 어두워진다
+mat.emissiveColor = <색>;          // diffuse 아님
+mat.backFaceCulling = false;
+mat.alphaMode = ALPHA_ADD;         // 빛나는 것 (연기·먼지는 ALPHA_COMBINE)
+mesh.isPickable = false;           // 클릭 판정을 가로채면 안 된다
+```
+
+- **깊이 쓰기 끄기** — 안 끄면 반투명끼리 서로 잘라먹는다
+- **오브젝트 풀링** — 런타임 `new`는 GC 스파이크의 주원인. 미리 만들고 `setEnabled(false)`로 재사용
+- **동시 개수 상한** — 초과 시 가장 오래된 것부터 제거 (모바일 오버드로우 방어)
+- **고정 스텝에 묶기** — 이펙트 시간도 게임 로직 시계를 쓴다 (일시정지 시 함께 멈춤)
+
+### 색은 KayKit 아틀라스에서 뽑는다
+임의의 네온 색을 쓰면 즉시 겉돈다. 현재 팔레트: 청염 `#7fb0ff` · 술사 `#b06cff` ·
+검기 `#cfe4ff` · 화염 `#ff8a3a` · 액센트 `#ffb03a`
+
+### ❌ 금지
+- **ShaderToy 코드 복사** — 기본 라이선스가 CC BY-NC-SA(비상업). MIT/CC0 명시본만 허용
+- **Unity Asset Store 에셋** — 재배포 금지 조항 → public 저장소에 원본을 올릴 수 없다
+- **블룸 / SSAO / DOF** — 플랫 셰이딩 스타일이 무너지고 모바일에서 비싸다
+- **파티클 라이브러리(three.quarks 등)** — 현재 규모에서는 과함
+
+### 재검토 트리거
+동시 파티클 5,000개 초과 · 아티스트가 코드 없이 편집해야 함 · 이펙트 30종 초과
 
 ---
 

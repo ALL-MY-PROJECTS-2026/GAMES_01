@@ -92,6 +92,10 @@ export class Player {
     this.dodgeCd = 0;
     this.iframe = 0;
     this.blocking = false;
+    this.spellCd = {};
+    this.spellCdMax = {};
+    this.groundAreas = [];
+    this.vfx = null;
     this._dodgeDir = new Vector3(0, 0, 0);
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
@@ -372,15 +376,46 @@ export class Player {
     }
   }
 
-  // 우클릭 술법: 청염탄 — MP 소모, 원거리 즉시 시전
-  castMagic(point) {
-    if (this.magicCd > 0 || this.dead) return false;
-    if (this.mp < MAGIC_COST) return false;
-    if (!this.projectiles) return false;
+  // 우클릭 술법 — 마법창에서 고른 술법을 시전한다
+  castMagic(point, spell = null) {
+    if (this.dead) return false;
+    const s = spell || { cost: MAGIC_COST, cd: MAGIC_CD, kind: 'bolt', color: '#7fb0ff',
+      baseDamage: 14, perLevel: 2, knock: 7, key: 'boltFlame' };
+    if ((this.spellCd && this.spellCd[s.key] > 0) || this.magicCd > 0) return false;
+    if (this.mp < s.cost) return false;
+    if (s.kind === 'bolt' && !this.projectiles) return false;
 
-    this.mp -= MAGIC_COST;
-    this.magicCd = MAGIC_CD;
+    this.mp -= s.cost;
+    this.magicCd = 0.25;                    // 술법 간 공통 최소 간격
+    this.spellCd = this.spellCd || {};
+    this.spellCd[s.key] = s.cd;
+    this.spellCdMax = this.spellCdMax || {};
+    this.spellCdMax[s.key] = s.cd;
     setMP(Math.round(this.mp), this.maxMp);
+    const damage = Math.round((s.baseDamage + stats.level * s.perLevel)
+      * this.charCfg.magicMul * magicDamageMul());
+
+    // 지정 지점 술법: 바닥 마법진을 깔고 장판을 남긴다
+    if (s.kind === 'ground') {
+      const dx = point.x - this.group.position.x;
+      const dz = point.z - this.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      const k = dist > s.range ? s.range / dist : 1;
+      const gx = this.group.position.x + dx * k;
+      const gz = this.group.position.z + dz * k;
+      this.group.rotation.y = Math.atan2(dx, dz);
+      this.play('cast', true, 1.6);
+      this.lockTimer = 0.45;
+      sfx.shoot();
+      if (this.vfx) this.vfx.circle({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: s.duration });
+      if (this.groundAreas) {
+        this.groundAreas.push({
+          x: gx, z: gz, radius: s.radius, damage, knock: s.knock, color: s.color,
+          t: s.duration, tick: 0, interval: s.tickInterval
+        });
+      }
+      return true;
+    }
 
     this.group.rotation.y = Math.atan2(
       point.x - this.group.position.x,
@@ -402,9 +437,34 @@ export class Player {
     origin.y += 1.15;
     origin.x += face.x * 0.6;
     origin.z += face.z * 0.6;
-    const damage = Math.round((14 + stats.level * 2) * this.charCfg.magicMul * magicDamageMul());
-    this.projectiles.spawn(origin, face.clone(), damage, 7, '#7fb0ff');
+    if (this.vfx) this.vfx.burst(origin, { size: 1.1, color: s.color, dur: 0.22 });
+    this.projectiles.spawn(origin, face.clone(), damage, s.knock, s.color);
     return true;
+  }
+
+  // 장판 술법 유지 — 주기마다 범위 안의 적을 태운다
+  updateGroundAreas(delta, monsters, onHit) {
+    if (!this.groundAreas) return;
+    for (let i = this.groundAreas.length - 1; i >= 0; i--) {
+      const a = this.groundAreas[i];
+      a.t -= delta;
+      a.tick -= delta;
+      if (a.tick <= 0) {
+        a.tick = a.interval;
+        if (this.vfx) this.vfx.shockwave({ x: a.x, z: a.z }, { radius: a.radius, color: a.color, dur: 0.4 });
+        for (const m of monsters) {
+          if (m.dead) continue;
+          const dx = m.group.position.x - a.x;
+          const dz = m.group.position.z - a.z;
+          if (dx * dx + dz * dz > a.radius * a.radius) continue;
+          const d = Math.max(0.001, Math.hypot(dx, dz));
+          const killed = m.takeDamage(a.damage, { x: dx / d, z: dz / d }, a.knock, 0);
+          this.popDamage(m, a.damage, false);
+          if (onHit) onHit(m, killed);
+        }
+      }
+      if (a.t <= 0) this.groundAreas.splice(i, 1);
+    }
   }
 
   _dmgMul(weaponKey) {
@@ -547,6 +607,10 @@ export class Player {
       0,
       Math.cos(this.group.rotation.y)
     );
+    const wKeyNow = this.pendingWeaponKey || this.weapon;
+    const finisherHit =
+      (wKeyNow === 'punch' && this.pendingComboStep === FINISHER_STEP) ||
+      (wKeyNow === 'sword' && this.pendingComboStep === SWORD_FINISHER);
     let hitAny = false;
     for (const m of monsters) {
       if (m.dead) continue;
@@ -563,6 +627,12 @@ export class Player {
       const killed = m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0);
       this.popDamage(m, dealt, this.pendingIsFinisher);
       hitAny = true;
+      // D. 타격 이펙트 — 무기별 색
+      if (this.vfx) {
+        const key = this.pendingWeaponKey || this.weapon;
+        const color = key === 'punch' ? '#ffd23e' : key === 'sword' ? '#cfe4ff' : '#ffb03a';
+        this.vfx.burst(m.group.position, { size: finisherHit ? 2.4 : 1.5, color });
+      }
       if (killed) {
         hitstop(0.12);
         shake(0.3, 0.22);
@@ -698,6 +768,11 @@ export class Player {
     this.magicCd = Math.max(0, this.magicCd - delta);
     this.dodgeCd = Math.max(0, this.dodgeCd - delta);
     this.iframe = Math.max(0, this.iframe - delta);
+    if (this.spellCd) {
+      for (const k of Object.keys(this.spellCd)) {
+        this.spellCd[k] = Math.max(0, this.spellCd[k] - delta);
+      }
+    }
     if (this.mp < this.maxMp) {
       this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);
       setMP(Math.round(this.mp), this.maxMp);

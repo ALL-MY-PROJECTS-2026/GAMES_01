@@ -98,6 +98,25 @@
     .slot-plus { position: absolute; right: 5px; top: 3px; font-size: 10px;
       font-weight: 700; color: var(--accent); z-index: 1; }
 
+    /* ── 하단 마법창 ── */
+    #spellbar { position: absolute; bottom: 76px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 7px; padding: 8px; pointer-events: auto; }
+    .spell { width: 58px; height: 58px; border-radius: 9px; position: relative; overflow: hidden;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--edge); cursor: pointer;
+      transition: border-color 0.12s, background 0.12s; }
+    .spell:hover { border-color: var(--edge-strong); }
+    .spell.active { border-color: #7fb0ff; background: rgba(127, 176, 255, 0.18);
+      box-shadow: 0 0 0 1px rgba(127, 176, 255, 0.4); }
+    .spell.poor { opacity: 0.42; }
+    .spell-key { position: absolute; top: 3px; left: 5px; font-size: 9px; color: var(--muted);
+      font-weight: 700; z-index: 2; }
+    .spell-icon { position: absolute; top: 12px; left: 0; right: 0; text-align: center;
+      font-size: 21px; z-index: 1; }
+    .spell-name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center;
+      font-size: 9.5px; color: var(--text); font-weight: 600; z-index: 1; }
+    .spell-cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+      background: rgba(10, 12, 18, 0.72); z-index: 3; transition: height 0.08s linear; }
+
     /* ── 미니맵 ── */
     #minimap-frame { position: absolute; right: 16px; bottom: 16px; width: 176px; height: 176px;
       border: 1px solid var(--edge); border-radius: var(--radius); overflow: hidden;
@@ -272,7 +291,7 @@
       </div>
       <div id="gold-row"><span id="gold-amount">0</span> G<span class="invkey">I</span> 인벤토리<span class="invkey">K</span> 수련 <span id="skill-pts"></span></div>
     </div>
-    <div id="hint" class="panel">좌클릭 이동·공격 · 우클릭 술법 · Space 회피 · C 방어 · Shift 달리기 · 2/3/4 무기 · 1 회복 · K 수련 · E 대화</div>
+    <div id="hint" class="panel">좌클릭 이동·공격 · 술법 선택 후 우클릭 시전 · Space 회피 · C 방어 · 2/3/4 무기 · F1/F2 술법 · 1 회복 · K 수련 · E 대화</div>
     <div id="bossbar" class="panel">
       <div id="boss-name">왕도깨비 <span id="boss-hptxt"></span></div>
       <div class="bar"><div id="boss-hp" class="fill"></div></div>
@@ -286,6 +305,7 @@
       </div>
       <div class="inv-hint">1번 키로 혼백 사용 (HP +15)</div>
     </div>
+    <div id="spellbar" class="panel"></div>
     <div id="quickbar" class="panel"></div>
     <div id="minimap-frame"><div class="label">MAP</div></div>
     <div id="talk-hint" class="panel">E 대화하기</div>

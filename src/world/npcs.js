@@ -4,8 +4,10 @@ import {
   StandardMaterial,
   DynamicTexture,
   Color3,
-  Mesh
+  Mesh,
+  SceneLoader
 } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 
 const INTERACT_RANGE = 2.6;
 
@@ -45,11 +47,21 @@ export function makeNameLabel(scene, name) {
 }
 
 class NPC {
-  constructor(scene, shadow, { name, role, color, x, z, lines }) {
+  constructor(scene, shadow, { name, role, color, x, z, lines, model }) {
     this.name = name;
     this.role = role;
     this.lines = lines;
+    this.scene = scene;
     this.group = new TransformNode('npc-' + name, scene);
+
+    if (model) {
+      this._loadModel(shadow, model);
+      const label = makeNameLabel(scene, name);
+      label.position.y = 2.4;
+      label.parent = this.group;
+      this.group.position.set(x, 0, z);
+      return;
+    }
 
     const body = MeshBuilder.CreateCylinder(
       'npcBody',
@@ -86,6 +98,33 @@ class NPC {
     this.group.position.set(x, 0, z);
   }
 
+  async _loadModel(shadow, cfg) {
+    const res = await SceneLoader.ImportMeshAsync('', 'models/', cfg.file, this.scene);
+    const root = res.meshes[0];
+    const holder = new TransformNode('npcModel-' + this.name, this.scene);
+    holder.parent = this.group;
+    root.parent = holder;
+
+    const { min, max } = root.getHierarchyBoundingVectors(true);
+    const h = max.y - min.y;
+    const scale = (cfg.height || 1.8) / h;
+    holder.scaling.setAll(scale);
+    holder.position.y = -min.y * scale;
+
+    const keep = cfg.props || [];
+    for (const m of res.meshes) {
+      if (shadow && m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
+      const parent = m.parent && m.parent.name;
+      if (parent && /^handslot/i.test(parent)) m.setEnabled(keep.includes(m.name));
+    }
+
+    // 서 있는 대기 동작만 재생 (NPC는 이동하지 않는다)
+    for (const g of res.animationGroups) {
+      g.stop();
+      if (g.name === (cfg.idle || 'Idle')) g.start(true, 1);
+    }
+  }
+
   update(delta, player) {
     const dx = player.group.position.x - this.group.position.x;
     const dz = player.group.position.z - this.group.position.z;
@@ -105,6 +144,7 @@ export class NPCManager {
         name: '도사 청운',
         role: 'elder',
         color: '#4a5a8e',
+        model: { file: 'Mage.glb', height: 1.85, props: ['2H_Staff'], idle: 'Idle' },
         x: 5,
         z: -6,
         lines: [
@@ -117,6 +157,7 @@ export class NPCManager {
       new NPC(scene, shadow, {
         name: '무녀 소하',
         role: 'merchant',
+        model: { file: 'Rogue_Hooded.glb', height: 1.75, props: [], idle: 'Idle' },
         color: '#b85a7a',
         x: -6,
         z: -4,

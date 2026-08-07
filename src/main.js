@@ -24,6 +24,11 @@ import {
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
 import { setLoadingTotal, loadingStep, finishLoading } from './ui/loading.js';
+import { VFX } from './world/vfx.js';
+import {
+  initSpellBar, getSelectedSpell, setSpellCooldown, setSpellAffordable, selectSpellByIndex
+} from './ui/spellbar.js';
+import { SPELLS, SPELL_ORDER } from './core/spells.js';
 
 async function boot() {
   setLoadingTotal(5);
@@ -56,6 +61,8 @@ async function boot() {
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
   monsters.setProjectiles(projectiles);
+  const vfx = new VFX(scene);
+  player.vfx = vfx;
   // 솔로 플레이: 선택한 캐릭터 한 명만 등장 (동료 AI 비활성)
   const companions = new CompanionManager(scene, shadow, []);
   const party = [player];
@@ -96,11 +103,12 @@ async function boot() {
 
     if (e.button === 2) {
       // 우클릭 = 술법 공격 (몬스터 또는 지점 방향으로 즉시 시전)
+      const spell = getSelectedSpell();
       if (mon && !mon.dead) {
         player.attackTarget = mon;
-        player.castMagic(mon.group.position);
+        player.castMagic(mon.group.position, spell);
       } else if (pick.pickedPoint) {
-        player.castMagic(pick.pickedPoint);
+        player.castMagic(pick.pickedPoint, spell);
       }
       return;
     }
@@ -132,6 +140,7 @@ async function boot() {
   initDialog();
   initShop();
   initSkills();
+  initSpellBar();
   initAudio();
   bindPlayer(player);
   setMP(player.mp, player.maxMp);
@@ -141,6 +150,10 @@ async function boot() {
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyI') toggleInventory();
     if (e.code === 'KeyK') toggleSkills();
+    if (e.code === 'F1' || e.code === 'F2') {
+      e.preventDefault();
+      selectSpellByIndex(e.code === 'F1' ? 0 : 1);
+    }
     if (e.code === 'Digit1') useJelly();
     if (e.code === 'Escape') { closeShop(); closeSkills(); }
     if (weaponKeys[e.code] && player.setWeapon(weaponKeys[e.code])) {
@@ -221,6 +234,14 @@ async function boot() {
     };
     monsters.update(d, party);
     projectiles.updateHostile(d, player);
+    player.updateGroundAreas(d, monsters.list, handleHit);
+    vfx.update(d);
+    for (const key of SPELL_ORDER) {
+      const sp = SPELLS[key];
+      const left = (player.spellCd && player.spellCd[key]) || 0;
+      setSpellCooldown(key, left / sp.cd);
+      setSpellAffordable(key, player.mp >= sp.cost);
+    }
     companions.update(d, player, monsters.list, obstacles, projectiles, handleHit);
     projectiles.update(d, monsters.list, handleHit);
     npcs.update(delta, player);
