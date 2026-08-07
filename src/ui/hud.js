@@ -130,6 +130,22 @@ export function showDamage(screenX, screenY, amount, crit = false) {
   setTimeout(() => el.remove(), 800);
 }
 
+// 보스 HP바 — 근처에 살아있는 보스가 있을 때만 표시
+export function setBossBar(boss) {
+  const el = document.getElementById('bossbar');
+  if (!el) return;
+  if (!boss) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  document.getElementById('boss-name').firstChild.textContent = `${boss.cfg.name} `;
+  document.getElementById('boss-hp').style.width =
+    `${Math.max(0, (boss.hp / boss.cfg.hp) * 100)}%`;
+  document.getElementById('boss-hptxt').textContent =
+    `${Math.max(0, Math.ceil(boss.hp))} / ${boss.cfg.hp}`;
+}
+
 export function flashHurt() {
   const el = document.getElementById('hitflash');
   if (!el) return;

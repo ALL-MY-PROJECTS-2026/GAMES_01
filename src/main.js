@@ -19,7 +19,7 @@ import { ThirdPersonCamera } from './player/camera.js';
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import {
-  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity
+  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity, setBossBar
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
@@ -226,6 +226,12 @@ async function boot() {
       addJelly(1);
       sfx.pickup();
     });
+    // 보스 HP바: 교전 거리 안에 살아있는 보스가 있을 때만
+    const boss = monsters.list.find((m) => m.cfg.isBoss && !m.dead
+      && Math.hypot(m.group.position.x - player.group.position.x,
+                    m.group.position.z - player.group.position.z) < 28);
+    setBossBar(boss || null);
+
     camRig.update(delta, input, player, player.speedFov);
     if (juice.shakeT > 0) {
       juice.shakeT -= delta;

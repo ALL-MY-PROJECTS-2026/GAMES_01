@@ -63,6 +63,30 @@ export const MONSTER_TYPES = {
       props: ['1H_Sword', 'Round_Shield']
     }
   },
+  // 왕도깨비 — 1장 필드 보스. 느리고 단단하며 패턴 2개를 번갈아 쓴다
+  boss: {
+    name: '왕도깨비',
+    hp: 900, damage: 22, speed: 2.4, wanderSpeed: 0.6, aggro: 16, attackRange: 3.1,
+    xp: 400, gold: [180, 260], jelly: 12,
+    barY: 3.4, ring: [55, 70],
+    isBoss: true,
+    superArmor: true,       // 넉백·에어본 면역 (REFERENCE.md: 무게 등급)
+    respawn: 60,
+    model: {
+      file: 'Barbarian.glb', height: 3.0,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: '2H_Melee_Attack_Chop', hit: 'Hit_A', death: 'Death_A',
+        spin: '2H_Melee_Attack_Spin', taunt: 'Taunt'
+      },
+      props: ['2H_Axe']
+    },
+    // 번갈아 쓰는 공격 패턴
+    patterns: [
+      { clip: 'attack', range: 3.1, damageMul: 1, windup: 0.45, knock: 16, knockUp: 0, radius: 0 },
+      { clip: 'spin', range: 4.2, damageMul: 1.5, windup: 0.55, knock: 22, knockUp: 5, radius: 4.2 }
+    ]
+  },
   // 뼈 졸개 — 약하지만 무리로 몰려온다
   minion: {
     name: '뼈 졸개',
@@ -290,14 +314,16 @@ class Monster {
     this.flashT = 0.15;
     this.flashMat.diffuseColor.copyFrom(RED);
     this.body.scaling.set(1.18, 0.45, 1.18);
-    if (dir) {
+    // 슈퍼아머(보스): 밀리지도, 뜨지도 않는다
+    if (dir && !this.cfg.superArmor) {
       this.knock.copyFromFloats(dir.x, 0, dir.z);
       this.knock.scaleInPlace(knock);
     }
-    if (knockUp > 0) this.velY = Math.max(this.velY, knockUp);
+    if (knockUp > 0 && !this.cfg.superArmor) this.velY = Math.max(this.velY, knockUp);
     if (this.hp <= 0) {
       this.dead = true;
-      this.respawnT = RESPAWN_TIME;
+      this.respawnT = this.cfg.respawn || RESPAWN_TIME;
+      this.pendingAtk = null;
       // 사망 연출: 막타 방향으로 시체가 날아간다 (PHYSICS.md §2-4)
       this.deathT = 0.55;
       this.knock.scaleInPlace(1.4);
@@ -311,7 +337,8 @@ class Monster {
       }
       return true;
     }
-    this.playOneShot('hit', 1.6);
+    // 슈퍼아머는 피격 모션으로 공격이 끊기지 않는다
+    if (!this.cfg.superArmor) this.playOneShot('hit', 1.6);
     return false;
   }
 
@@ -422,7 +449,33 @@ class Monster {
         this._moveState = 'idle';
       }
       this.attackT -= delta;
-      if (dist < this.cfg.attackRange && this.attackT <= 0) {
+      if (this.cfg.patterns) {
+        // 보스: 패턴을 번갈아 쓰고, 예비동작 뒤에 판정이 나간다
+        if (this.pendingAtk) {
+          this.pendingAtk.t -= delta;
+          if (this.pendingAtk.t <= 0) {
+            const pat = this.pendingAtk.pattern;
+            const dmg = Math.round(this.cfg.damage * pat.damageMul);
+            for (const t of targets) {
+              if (t.dead || t.hp <= 0) continue;
+              const d = Math.hypot(t.group.position.x - pos.x, t.group.position.z - pos.z);
+              const reach = pat.radius > 0 ? pat.radius : pat.range;
+              if (d > reach) continue;
+              const ux = (t.group.position.x - pos.x) / Math.max(d, 0.001);
+              const uz = (t.group.position.z - pos.z) / Math.max(d, 0.001);
+              t.takeDamage(dmg, { x: ux, z: uz });
+            }
+            this.pendingAtk = null;
+          }
+        } else if (dist < this.cfg.attackRange + 1 && this.attackT <= 0) {
+          this.patIndex = ((this.patIndex || 0) + 1) % this.cfg.patterns.length;
+          const pat = this.cfg.patterns[this.patIndex];
+          this.attackT = ATTACK_INTERVAL * 1.9;
+          this.attackAnim = 0.3;
+          this.playOneShot(pat.clip, 1);
+          this.pendingAtk = { pattern: pat, t: pat.windup };
+        }
+      } else if (dist < this.cfg.attackRange && this.attackT <= 0) {
         this.attackT = ATTACK_INTERVAL;
         this.attackAnim = 0.3;
         this.playOneShot('attack', 1.3);
@@ -476,7 +529,8 @@ class Monster {
 }
 
 export class MonsterManager {
-  constructor(scene, obstacles, shadow, counts = { slime: 5, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3 }) {
+  constructor(scene, obstacles, shadow,
+    counts = { slime: 5, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3, boss: 1 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {
