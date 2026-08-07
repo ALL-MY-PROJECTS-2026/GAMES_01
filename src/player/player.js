@@ -10,6 +10,7 @@ import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh, SWORD_TIP_Y } from './weapons.js';
 import { BladeTrail } from './blade_trail.js';
+import { recolorTexture } from './recolor.js';
 import { setHP, setMP, showCombo, flashHurt, showDamage } from '../ui/hud.js';
 import { hitstop, shake } from '../core/juice.js';
 import {
@@ -17,7 +18,6 @@ import {
 } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
-import { buildIlim } from './ilim_model.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
@@ -29,27 +29,27 @@ const COMBO_WINDOW = 1.1;
 // 권법 5단 연계: 잽 → 되치기 → 훅(휘두르기) → 어퍼(도약) → 붕권(마무리)
 // 단계별로 클립·재생 구간·속도를 다르게 해서 모션을 구분한다
 const PUNCH_COMBO = [
-  { dmgMul: 0.8, knock: 3, cd: 0.2, lunge: 3.6, anim: { name: 'Punch', speed: 2.8, toFrac: 0.7 } },
-  { dmgMul: 0.9, knock: 3.5, cd: 0.24, lunge: 3.8, anim: { name: 'Punch', speed: 2.5, fromFrac: 0.3 } },
-  { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, anim: { name: 'Wave', speed: 3.0, toFrac: 0.45 } },
-  { dmgMul: 1.25, knock: 7, knockUp: 9, cd: 0.38, lunge: 4.6, anim: { name: 'Jump', speed: 2.0, fromFrac: 0.08, toFrac: 0.72 } },
-  { dmgMul: 2.0, knock: 18, knockUp: 2.5, cd: 0.68, lunge: 6.0, anim: { name: 'Punch', speed: 1.35 } }
+  { dmgMul: 0.8, knock: 3, cd: 0.2, lunge: 3.6, anim: { key: 'punch1', speed: 2.8, toFrac: 0.7 } },
+  { dmgMul: 0.9, knock: 3.5, cd: 0.24, lunge: 3.8, anim: { key: 'punch2', speed: 2.5, fromFrac: 0.3 } },
+  { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, anim: { key: 'punch3', speed: 2.4, toFrac: 0.8 } },
+  { dmgMul: 1.25, knock: 7, knockUp: 9, cd: 0.38, lunge: 4.6, anim: { key: 'punch4', speed: 1.9, fromFrac: 0.08, toFrac: 0.85 } },
+  { dmgMul: 2.0, knock: 18, knockUp: 2.5, cd: 0.68, lunge: 6.0, anim: { key: 'punch5', speed: 1.3 } }
 ];
 const FINISHER_STEP = PUNCH_COMBO.length - 1;
 // 퇴마검 2단 기본 콤보: 찌르기 → 가로베기
 const SWORD_COMBO = [
   {
     dmgMul: 0.95, knock: 9, knockUp: 0, cd: 0.42, lunge: 5.4, arcDot: 0.5, rangeMul: 1.15,
-    anim: { name: 'Punch', speed: 1.9, rigMotion: 'thrust' }
+    anim: { key: 'sword1', speed: 1.7 }   // 찌르기
   },
   {
     dmgMul: 1.35, knock: 15, knockUp: 1.5, cd: 0.58, lunge: 3.4, arcDot: -0.25, rangeMul: 1,
-    anim: { name: 'Wave', speed: 1.7, toFrac: 0.5, rigMotion: 'slash' }
+    anim: { key: 'sword2', speed: 1.5 }   // 가로베기
   }
 ];
 const SWORD_FINISHER = SWORD_COMBO.length - 1;
-const LOOPING = new Set(['Idle', 'Walking', 'Running']);
-const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
+const LOOPING = new Set(['idle', 'walk', 'run']);
+const SPEEDS = { idle: 1, walk: 1.2, run: 1.25, jump: 1.25 };
 
 export class Player {
   constructor(scene, obstacles = [], shadow = null, charKey = 'ilim') {
@@ -100,7 +100,6 @@ export class Player {
     this.groups = null;
     this.currentAction = null;
     this.currentName = '';
-    this.rig = null; // 프로시저럴 리그(이림) 사용 시 설정
     this.trail = new BladeTrail(scene);
     this._tipTmp = new Vector3(0, 0, 0);
     this._baseTmp = new Vector3(0, 0, 0);
@@ -111,38 +110,13 @@ export class Player {
     this._move = new Vector3(0, 0, 0);
     this._face = new Vector3(0, 0, 0);
 
-    if (this.charCfg.proceduralRig === 'ilim') this._buildRig(shadow);
-    else this._loadModel(shadow);
-  }
-
-  // 프로시저럴 로우폴리 리그(이림) — GLB 대신 코드로 만든 모델을 사용한다
-  _buildRig(shadow) {
-    const rig = buildIlim(this.scene, shadow);
-    rig.root.parent = this.group;
-    this.rig = rig;
-    this.model = rig.root;
-    this.clipDur = { Punch: 0.5, Wave: 0.55, Jump: 0.5 };
-    this.punchClipDur = 0.5;
-
-    this.placeholder.dispose();
-    this.placeholder = null;
-
-    const sword = makeSwordMesh(this.scene);
-    const gun = makeGunMesh(this.scene);
-    // 무기의 로컬 +Y가 칼끝 — 방향은 손목(handR) 회전이 만든다
-    for (const w of [sword, gun]) w.parent = rig.handR;
-    sword.position.set(0, 0, 0);
-    gun.rotation.set(Math.PI / 2, 0, 0);
-    gun.position.set(0, 0.05, 0);
-    sword.setEnabled(false);
-    gun.setEnabled(false);
-    this.weaponMeshes = { sword, gun };
-    this.setWeapon(this.weapon);
-    this.play('Idle');
+    this._loadModel(shadow);
   }
 
   async _loadModel(shadow) {
-    const res = await SceneLoader.ImportMeshAsync('', 'models/', 'character.glb', this.scene);
+    const cfg = this.charCfg.model;
+    this.clipMap = cfg.clips;
+    const res = await SceneLoader.ImportMeshAsync('', 'models/', cfg.file, this.scene);
     const rootMesh = res.meshes[0];
 
     this.model = new TransformNode('playerModel', this.scene);
@@ -151,18 +125,31 @@ export class Player {
 
     const { min, max } = rootMesh.getHierarchyBoundingVectors(true);
     const h = max.y - min.y;
-    const scale = 1.9 / h;
+    const scale = cfg.height / h;
     this.modelScale = scale;
     this.model.scaling.setAll(scale);
     this.model.position.y = -min.y * scale;
 
+    // 색조 기반 리컬러(이림의 붉은 무복) 또는 단순 틴트
+    let recolored = null;
+    if (cfg.recolor && cfg.texture) {
+      try {
+        recolored = await recolorTexture(this.scene, cfg.texture, cfg.recolor, `${this.charKey}Tex`);
+      } catch (e) {
+        recolored = null;
+      }
+    }
     const tint = this.charCfg.tint ? Color3.FromHexString(this.charCfg.tint) : null;
-    const tinted = new Set();
+    const touched = new Set();
     for (const m of res.meshes) {
       if (shadow && m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
       const mat = m.material;
-      if (tint && mat && !tinted.has(mat)) {
-        tinted.add(mat);
+      if (!mat || touched.has(mat)) continue;
+      touched.add(mat);
+      if (recolored) {
+        if ('albedoTexture' in mat) mat.albedoTexture = recolored;
+        else if ('diffuseTexture' in mat) mat.diffuseTexture = recolored;
+      } else if (tint) {
         if (mat.albedoColor) mat.albedoColor = mat.albedoColor.multiply(tint);
         else if (mat.diffuseColor) mat.diffuseColor = mat.diffuseColor.multiply(tint);
       }
@@ -181,28 +168,41 @@ export class Player {
         ta.animation.blendingSpeed = 0.1;
       }
     }
-    if (this.clipDur.Punch) this.punchClipDur = this.clipDur.Punch;
+    const punchClip = this.clipMap.punch1;
+    if (this.clipDur[punchClip]) this.punchClipDur = this.clipDur[punchClip];
 
     this.placeholder.dispose();
     this.placeholder = null;
-    this.play('Idle');
+    this.play('idle');
 
-    const hand =
-      this.scene.getTransformNodeByName('Hand.R') ||
-      this.scene.getTransformNodeByName('HandR') ||
-      this.scene.getTransformNodeByName('Hand.L') ||
-      this.scene.getTransformNodeByName('LowerArm.R');
+    // 무기 부착: 모델이 전용 무기 슬롯 본을 가지면 그쪽에, 없으면 손 노드에 붙인다
     const sword = makeSwordMesh(this.scene);
     const gun = makeGunMesh(this.scene);
-    if (hand) {
-      const inv = 1 / scale;
+    const slotBone = cfg.weaponBone
+      ? (res.skeletons[0] && res.skeletons[0].bones.find((b) => b.name === cfg.weaponBone))
+      : null;
+    const attach = slotBone
+      ? slotBone.getTransformNode()
+      : this.scene.getTransformNodeByName('Hand.R') ||
+        this.scene.getTransformNodeByName('HandR') ||
+        this.scene.getTransformNodeByName('LowerArm.R');
+
+    if (attach) {
       for (const w of [sword, gun]) {
-        w.parent = hand;
-        w.scaling.setAll(inv);
+        w.parent = attach;
+        w.scaling.setAll(1);
+        w.position.set(0, 0, 0);
+        w.rotation.set(0, 0, 0);
       }
-      sword.position.set(0, 0.25 / scale, 0);
-      sword.rotation.set(Math.PI / 2, 0, 0);
-      gun.position.set(0, 0.22 / scale, 0.05 / scale);
+      if (!slotBone) {
+        const inv = 1 / scale;
+        for (const w of [sword, gun]) w.scaling.setAll(inv);
+        sword.position.set(0, 0.25 / scale, 0);
+        sword.rotation.set(Math.PI / 2, 0, 0);
+        gun.position.set(0, 0.22 / scale, 0.05 / scale);
+      } else {
+        gun.rotation.set(Math.PI / 2, 0, 0);
+      }
     } else {
       sword.parent = this.group;
       gun.parent = this.group;
@@ -216,30 +216,33 @@ export class Player {
     this.setWeapon(this.weapon);
   }
 
-  play(name, force = false, speedOverride = null, fromFrac = 0, toFrac = 1, rigMotion = null) {
-    if (this.rig) {
-      const speed = speedOverride !== null ? speedOverride : SPEEDS[name] || 1;
-      this.rig.setAnim(name, speed, fromFrac, rigMotion);
-      this.currentName = name;
-      return;
-    }
-    if (!this.groups) return;
+  // 논리 키에 대응하는 클립의 재생 길이(초)
+  _clipLen(key) {
+    const name = this.clipMap && this.clipMap[key];
+    return (name && this.clipDur && this.clipDur[name]) || this.punchClipDur;
+  }
+
+  // key는 논리 동작 이름(idle/walk/run/punch1/sword2/...) — 캐릭터별 클립 맵으로 변환된다
+  play(key, force = false, speedOverride = null, fromFrac = 0, toFrac = 1) {
+    if (!this.groups || !this.clipMap) return;
+    const name = this.clipMap[key] || key;
     const next = this.groups[name];
     if (!next) return;
-    if (this.currentName === name && !force) return;
+    if (this.currentKey === key && !force) return;
 
-    const speed = speedOverride !== null ? speedOverride : SPEEDS[name] || 1;
+    const speed = speedOverride !== null ? speedOverride : SPEEDS[key] || 1;
     if (this.currentAction && this.currentAction !== next) this.currentAction.stop();
-    if (this.currentName === name && force) next.stop();
+    if (this.currentAction === next && force) next.stop();
     if (fromFrac > 0 || toFrac < 1) {
       const f0 = next.from + (next.to - next.from) * fromFrac;
       const f1 = next.from + (next.to - next.from) * toFrac;
       next.start(false, speed, f0, f1);
     } else {
-      next.start(LOOPING.has(name), speed);
+      next.start(LOOPING.has(key), speed);
     }
     this.currentAction = next;
     this.currentName = name;
+    this.currentKey = key;
   }
 
   setWeapon(key) {
@@ -293,7 +296,7 @@ export class Player {
       Math.cos(this.group.rotation.y)
     );
 
-    this.play('Wave', true, 1.8);
+    this.play('cast', true, 1.8);
     this.lockTimer = 0.35;
     this.currentLunge = 0;
     this.lungeUntil = 0;
@@ -336,9 +339,8 @@ export class Player {
       Math.cos(this.group.rotation.y)
     );
 
-    this.play('Punch', true, w.animScale);
-
     if (w.type === 'ranged') {
+      this.play('shoot', true, w.animScale);
       this.lockTimer = 0.14;
       this.currentLunge = 0;
       this.lungeUntil = 0;
@@ -368,7 +370,7 @@ export class Player {
       const a = st.anim;
       const fromFrac = a.fromFrac || 0;
       const toFrac = a.toFrac !== undefined ? a.toFrac : 1;
-      const clipDur = (this.clipDur && this.clipDur[a.name]) || this.punchClipDur;
+      const clipDur = this._clipLen(a.key);
       const sliceDur = clipDur * (toFrac - fromFrac) / (a.speed * aspd);
 
       this.attackCd = st.cd / aspd;
@@ -384,7 +386,7 @@ export class Player {
         knockUp: st.knockUp || 0
       };
       this.pendingWeaponKey = this.weapon;
-      this.play(a.name, true, a.speed * aspd, fromFrac, toFrac);
+      this.play(a.key, true, a.speed * aspd, fromFrac, toFrac);
       if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {
@@ -399,7 +401,7 @@ export class Player {
       const a = st.anim;
       const fromFrac = a.fromFrac || 0;
       const toFrac = a.toFrac !== undefined ? a.toFrac : 1;
-      const clipDur = (this.clipDur && this.clipDur[a.name]) || this.punchClipDur;
+      const clipDur = this._clipLen(a.key);
       const sliceDur = clipDur * (toFrac - fromFrac) / (a.speed * aspd);
 
       this.attackCd = st.cd / aspd;
@@ -417,7 +419,7 @@ export class Player {
         range: w.range * st.rangeMul
       };
       this.pendingWeaponKey = this.weapon;
-      this.play(a.name, true, a.speed * aspd, fromFrac, toFrac, a.rigMotion);
+      this.play(a.key, true, a.speed * aspd, fromFrac, toFrac);
       this.trail.start();
       sfx.swing();
     }
@@ -558,7 +560,7 @@ export class Player {
     if (this.onGround && input.pressed('Space')) {
       this.velY = JUMP_SPEED;
       this.onGround = false;
-      this.play('Jump', true);
+      this.play('jump', true);
       sfx.jump();
     }
 
@@ -592,12 +594,11 @@ export class Player {
       if (this.comboTimer <= 0) this.comboStep = -1;
     }
 
-    if ((this.groups || this.rig) && this.onGround && this.lockTimer <= 0) {
-      if (moving && running) this.play('Running');
-      else if (moving) this.play('Walking');
-      else this.play('Idle');
+    if (this.groups && this.onGround && this.lockTimer <= 0) {
+      if (moving && running) this.play('run');
+      else if (moving) this.play('walk');
+      else this.play('idle');
     }
-    if (this.rig) this.rig.tick(delta);
     this._updateTrail(delta);
   }
 
