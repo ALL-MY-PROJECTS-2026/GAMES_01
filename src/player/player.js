@@ -21,13 +21,14 @@ const JUMP_SPEED = 9.5;
 const MAGIC_COST = 20;
 const MAGIC_CD = 0.8;
 const COMBO_WINDOW = 1.1;
-// 권법 5단 연계: 잽 → 잽 → 훅 → 어퍼 → 붕권(마무리)
+// 권법 5단 연계: 잽 → 되치기 → 훅(휘두르기) → 어퍼(도약) → 붕권(마무리)
+// 단계별로 클립·재생 구간·속도를 다르게 해서 모션을 구분한다
 const PUNCH_COMBO = [
-  { dmgMul: 0.8, knock: 3, cd: 0.26, lunge: 3.6, animSpeed: 2.4 },
-  { dmgMul: 0.9, knock: 3.5, cd: 0.26, lunge: 3.8, animSpeed: 2.4 },
-  { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, animSpeed: 2.2 },
-  { dmgMul: 1.25, knock: 7, cd: 0.34, lunge: 4.6, animSpeed: 2.0 },
-  { dmgMul: 2.0, knock: 18, cd: 0.6, lunge: 6.0, animSpeed: 1.6 }
+  { dmgMul: 0.8, knock: 3, cd: 0.2, lunge: 3.6, anim: { name: 'Punch', speed: 2.8, toFrac: 0.7 } },
+  { dmgMul: 0.9, knock: 3.5, cd: 0.24, lunge: 3.8, anim: { name: 'Punch', speed: 2.5, fromFrac: 0.3 } },
+  { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, anim: { name: 'Wave', speed: 3.0, toFrac: 0.45 } },
+  { dmgMul: 1.25, knock: 7, cd: 0.38, lunge: 4.6, anim: { name: 'Jump', speed: 2.0, fromFrac: 0.08, toFrac: 0.72 } },
+  { dmgMul: 2.0, knock: 18, cd: 0.68, lunge: 6.0, anim: { name: 'Punch', speed: 1.35 } }
 ];
 const FINISHER_STEP = PUNCH_COMBO.length - 1;
 const LOOPING = new Set(['Idle', 'Walking', 'Running']);
@@ -120,20 +121,19 @@ export class Player {
     }
 
     this.groups = {};
+    this.clipDur = {};
     for (const g of res.animationGroups) {
       g.stop();
       this.groups[g.name] = g;
+      const anim = g.targetedAnimations[0] ? g.targetedAnimations[0].animation : null;
+      const fps = anim ? anim.framePerSecond : 60;
+      this.clipDur[g.name] = (g.to - g.from) / fps;
       for (const ta of g.targetedAnimations) {
         ta.animation.enableBlending = true;
         ta.animation.blendingSpeed = 0.1;
       }
     }
-    const punch = this.groups.Punch;
-    if (punch) {
-      const anim = punch.targetedAnimations[0] ? punch.targetedAnimations[0].animation : null;
-      const fps = anim ? anim.framePerSecond : 60;
-      this.punchClipDur = (punch.to - punch.from) / fps;
-    }
+    if (this.clipDur.Punch) this.punchClipDur = this.clipDur.Punch;
 
     this.placeholder.dispose();
     this.placeholder = null;
@@ -168,7 +168,7 @@ export class Player {
     this.setWeapon(this.weapon);
   }
 
-  play(name, force = false, speedOverride = null) {
+  play(name, force = false, speedOverride = null, fromFrac = 0, toFrac = 1) {
     if (!this.groups) return;
     const next = this.groups[name];
     if (!next) return;
@@ -177,7 +177,13 @@ export class Player {
     const speed = speedOverride !== null ? speedOverride : SPEEDS[name] || 1;
     if (this.currentAction && this.currentAction !== next) this.currentAction.stop();
     if (this.currentName === name && force) next.stop();
-    next.start(LOOPING.has(name), speed);
+    if (fromFrac > 0 || toFrac < 1) {
+      const f0 = next.from + (next.to - next.from) * fromFrac;
+      const f1 = next.from + (next.to - next.from) * toFrac;
+      next.start(false, speed, f0, f1);
+    } else {
+      next.start(LOOPING.has(name), speed);
+    }
     this.currentAction = next;
     this.currentName = name;
   }
@@ -299,11 +305,17 @@ export class Player {
       this.pendingComboStep = step;
 
       const fin = step === FINISHER_STEP ? finisherMods(stats.skills) : { dmgMul: 1, knockMul: 1 };
+      const a = st.anim;
+      const fromFrac = a.fromFrac || 0;
+      const toFrac = a.toFrac !== undefined ? a.toFrac : 1;
+      const clipDur = (this.clipDur && this.clipDur[a.name]) || this.punchClipDur;
+      const sliceDur = clipDur * (toFrac - fromFrac) / a.speed;
+
       this.attackCd = st.cd;
-      this.lockTimer = this.punchClipDur / st.animSpeed;
+      this.lockTimer = sliceDur;
       this.currentLunge = st.lunge;
       this.lungeUntil = this.lockTimer - 0.25;
-      this.pendingHit = w.hitDelay;
+      this.pendingHit = Math.min(w.hitDelay, sliceDur * 0.45);
       this.pendingList = monsters;
       this.pendingWeapon = {
         ...w,
@@ -311,7 +323,7 @@ export class Player {
         knock: st.knock * fin.knockMul
       };
       this.pendingWeaponKey = this.weapon;
-      this.play('Punch', true, st.animSpeed);
+      this.play(a.name, true, a.speed, fromFrac, toFrac);
       if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {

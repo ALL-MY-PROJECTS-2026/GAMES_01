@@ -63,6 +63,19 @@ async function boot() {
   marker.rotation.x = Math.PI / 2;
   marker.setEnabled(false);
 
+  // 클릭 지점 근처의 살아있는 몬스터를 찾아 자동 타게팅 (클릭 어시스트)
+  const AIM_ASSIST_RADIUS = 2.8;
+  function monsterNearPoint(point) {
+    let best = null;
+    let bd = AIM_ASSIST_RADIUS;
+    for (const m of monsters.list) {
+      if (m.dead) continue;
+      const d = Math.hypot(m.group.position.x - point.x, m.group.position.z - point.z);
+      if (d < bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.button !== 2) return;
@@ -70,7 +83,8 @@ async function boot() {
     // 멀티 카메라(미니맵) 환경에서는 픽 카메라를 반드시 명시해야 한다
     const pick = scene.pick(scene.pointerX, scene.pointerY, undefined, false, camRig.cam);
     if (!pick || !pick.hit) return;
-    const mon = pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.monster;
+    let mon = pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.monster;
+    if (!mon && pick.pickedPoint) mon = monsterNearPoint(pick.pickedPoint);
 
     if (e.button === 2) {
       // 우클릭 = 술법 공격 (몬스터 또는 지점 방향으로 즉시 시전)
