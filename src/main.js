@@ -262,6 +262,44 @@ async function boot() {
     return true;
   };
 
+  // 내 공격·시전을 동료에게 알린다 (상태 샘플링으로는 짧은 동작을 놓친다)
+  player.onAction = (evt) => { if (net.connected) net.broadcast(evt); };
+
+  // 동료의 공격·시전을 그대로 재생한다 (판정은 하지 않는다 — 호스트만 한다)
+  net.onEvent = (e, peerId) => {
+    const gh = ghosts.map.get(peerId);
+    if (gh && e.r !== undefined) { gh.target.ry = e.r; gh.group.rotation.y = e.r; }
+
+    if (e.t === 'atk') {
+      if (gh) gh.playOnce(e.k, e.s || 1, e.f || 0, e.o === undefined ? 1 : e.o);
+      const color = e.w === 'punch' ? '#ffd23e' : e.w === 'sword' ? '#cfe4ff' : '#ffb03a';
+      vfx.slash({ x: e.x, z: e.z }, e.r || 0, { radius: 3.2, color, dur: 0.24 });
+    } else if (e.t === 'shot') {
+      if (gh) gh.playOnce('shoot', 1.6);
+      projectiles.spawnVisual({ x: e.ox, y: e.oy, z: e.oz }, { x: e.dx, z: e.dz }, '#ffd666', e.k);
+      vfx.burst({ x: e.ox, y: e.oy - 0.9, z: e.oz }, { size: 0.9, color: '#ffd666', dur: 0.16 });
+    } else if (e.t === 'bolt') {
+      if (gh) gh.playOnce('cast', 1.8);
+      projectiles.spawnVisual({ x: e.ox, y: e.oy, z: e.oz }, { x: e.dx, z: e.dz }, e.c, 'bolt');
+      vfx.burst({ x: e.ox, y: e.oy - 0.9, z: e.oz }, { size: 1.1, color: e.c, dur: 0.22 });
+    } else if (e.t === 'spell') {
+      const sp = SPELLS[e.k];
+      if (!sp) return;
+      if (gh) gh.playOnce('cast', 1.6);
+      if (e.k === 'frostNova') {
+        vfx.frostNova({ x: e.x, z: e.z }, { radius: sp.radius, color: sp.color });
+      } else if (e.k === 'flameField') {
+        vfx.circle({ x: e.gx, z: e.gz }, { radius: sp.radius, color: sp.color, dur: 0.9 });
+        vfx.fireField({ x: e.gx, z: e.gz }, { radius: sp.radius, color: sp.color, dur: sp.duration });
+      } else if (e.k === 'wardBarrier') {
+        if (gh) vfx.aura(gh.group, { radius: 1.5, color: sp.color, dur: sp.duration });
+        vfx.circle({ x: e.x, z: e.z }, { radius: 2.4, color: sp.color, dur: 1.1 });
+      } else if (e.k === 'chainBolt') {
+        vfx.burst({ x: e.x, z: e.z }, { size: 1.6, color: sp.color, dur: 0.28 });
+      }
+    }
+  };
+
   renderNetStatus();
 
   const talkHint = document.getElementById('talk-hint');

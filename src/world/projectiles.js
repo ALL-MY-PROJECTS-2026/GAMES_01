@@ -164,7 +164,12 @@ export class ProjectileManager {
     return this.mats[color];
   }
 
-  spawn(origin, dir, damage, knock, color = '#ffd666', kind = 'bolt') {
+  /** 원격 플레이어가 쏜 것 — 보이기만 하고 판정은 하지 않는다 */
+  spawnVisual(origin, dir, color, kind) {
+    this.spawn(origin, dir, 0, 0, color, kind, true);
+  }
+
+  spawn(origin, dir, damage, knock, color = '#ffd666', kind = 'bolt', visual = false) {
     let mesh;
     if (kind === 'arrow') {
       const template = this.arrowTemplate || this._arrowTemplate();
@@ -188,6 +193,7 @@ export class ProjectileManager {
       life: LIFE,
       damage,
       knock,
+      visual,
       trailT: kind === 'arrow' ? 0 : undefined
     });
   }
@@ -220,6 +226,7 @@ export class ProjectileManager {
         continue;
       }
 
+      if (p.visual) continue;   // 시각 전용은 아무것도 맞히지 않는다
       for (const m of monsters) {
         if (m.dead) continue;
         const dx = pos.x - m.group.position.x;

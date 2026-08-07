@@ -433,6 +433,8 @@ export class Player {
       this.play('cast', true, 1.5);
       this.lockTimer = 0.4;
       sfx.levelup();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
+        z: this.group.position.z, r: this.group.rotation.y });
       this.wardT = s.duration;
       this.wardMul = s.damageTakenMul;
       if (this.vfx) {
@@ -449,6 +451,8 @@ export class Player {
       sfx.punchHeavy();
       shake(0.3, 0.24);
       const origin = this.group.position;
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: origin.x, z: origin.z,
+        r: this.group.rotation.y });
       if (this.vfx) this.vfx.frostNova(origin, { radius: s.radius, color: s.color });
       for (const m of (this.pendingList || this.nearbyMonsters || [])) {
         if (m.dead) continue;
@@ -471,6 +475,8 @@ export class Player {
       this.play('cast', true, 1.8);
       this.lockTimer = 0.35;
       sfx.shoot();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
+        z: this.group.position.z, r: this.group.rotation.y });
       const pool = (this.nearbyMonsters || []).filter((m) => !m.dead);
       let from = { x: this.group.position.x, z: this.group.position.z };
       const hitSet = new Set();
@@ -521,6 +527,8 @@ export class Player {
       this.play('cast', true, 1.6);
       this.lockTimer = 0.45;
       sfx.shoot();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, gx, gz,
+        x: this.group.position.x, z: this.group.position.z, r: this.group.rotation.y });
       if (this.vfx) {
         // 시전 순간 마법진이 잠깐 돌고, 그 자리에 불바다가 남는다
         this.vfx.circle({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: 0.9 });
@@ -555,6 +563,9 @@ export class Player {
     origin.y += 1.15;
     origin.x += face.x * 0.6;
     origin.z += face.z * 0.6;
+    if (this.onAction) this.onAction({ t: 'bolt', ox: origin.x, oy: origin.y, oz: origin.z,
+      dx: face.x, dz: face.z, c: s.color, x: this.group.position.x, z: this.group.position.z,
+      r: this.group.rotation.y });
     if (this.vfx) this.vfx.burst(origin, { size: 1.1, color: s.color, dur: 0.22 });
     this.projectiles.spawn(origin, face.clone(), damage, s.knock, s.color);
     return true;
@@ -639,6 +650,9 @@ export class Player {
           this.vfx.burst(origin, { size: 0.9, color: '#ffd666', dur: 0.16 });
           this.vfx.sparks(origin, { count: 6, color: '#ffe9a8', power: 3, size: 0.16 });
         }
+        if (this.onAction) this.onAction({ t: 'shot', ox: origin.x, oy: origin.y, oz: origin.z,
+          dx: face.x, dz: face.z, k: w.projectile || 'bolt',
+          x: this.group.position.x, z: this.group.position.z, r: this.group.rotation.y });
       }
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
@@ -704,6 +718,9 @@ export class Player {
       };
       this.pendingWeaponKey = this.weapon;
       this.play(a.key, true, a.speed * aspd, fromFrac, toFrac);
+      if (this.onAction) this.onAction({ t: 'atk', k: a.key, s: a.speed * aspd,
+        f: fromFrac, o: toFrac, x: this.group.position.x, z: this.group.position.z,
+        r: this.group.rotation.y, w: this.weapon });
       this.trail.start();
       // E. 검기 — 휘두르는 궤적을 부채꼴로 표시 (STACK.md §9 우선순위 2)
       if (this.vfx) {

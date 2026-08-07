@@ -75,6 +75,25 @@ class Ghost {
     this.currentKey = key;
   }
 
+  /** 공격·시전처럼 한 번만 재생하는 동작 (상태 샘플링으로는 놓치기 쉬워 이벤트로 받는다) */
+  playOnce(key, speed = 1, fromFrac = 0, toFrac = 1) {
+    if (!this.groups) return;
+    const name = this.clipMap[key] || key;
+    const next = this.groups[name];
+    if (!next) return;
+    if (this.current) this.current.stop();
+    if (fromFrac > 0 || toFrac < 1) {
+      const f0 = next.from + (next.to - next.from) * fromFrac;
+      const f1 = next.from + (next.to - next.from) * toFrac;
+      next.start(false, speed, f0, f1);
+    } else {
+      next.start(false, speed);
+    }
+    this.current = next;
+    this.currentKey = key;
+    this.lockT = 0.5;
+  }
+
   setLabel(text) {
     if (this.labelText === text) return;
     this.labelText = text;
@@ -89,11 +108,13 @@ class Ghost {
     this.target.x = state.x;
     this.target.z = state.z;
     this.target.ry = state.ry;
-    this.play(state.a || 'idle');
+    // 원샷 동작 재생 중에는 상태값으로 덮어쓰지 않는다
+    if (!(this.lockT > 0)) this.play(state.a || 'idle');
     this.setLabel(`${state.n || '퇴마사'} Lv.${state.lv || 1}`);
   }
 
   update(delta) {
+    if (this.lockT > 0) this.lockT -= delta;
     const k = Math.min(1, delta * LERP_RATE);
     const p = this.group.position;
     p.x += (this.target.x - p.x) * k;
