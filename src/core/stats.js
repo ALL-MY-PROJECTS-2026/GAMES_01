@@ -6,6 +6,8 @@ import { sfx } from './sfx.js';
 import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
+// 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
+const SAVE_VERSION = 2;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -51,6 +53,7 @@ let playerRef = null;
 export function save() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: SAVE_VERSION,
       level: stats.level,
       xp: stats.xp,
       xpMax: stats.xpMax,
@@ -67,11 +70,23 @@ export function save() {
   } catch (e) { /* storage unavailable */ }
 }
 
+// 구버전 세이브를 현재 스키마로 끌어올린다. 알 수 없는 미래 버전은 버린다.
+function migrate(data) {
+  const v = data.version || 1;
+  if (v > SAVE_VERSION) return null;
+  if (v < 2) {
+    // v1: 스탯/스킬 포인트가 없던 시절 — 지나간 레벨업만큼 소급 지급은 bindPlayer가 처리
+    data.attrs = data.attrs || { str: 0, vit: 0, dex: 0, mag: 0 };
+  }
+  data.version = SAVE_VERSION;
+  return data;
+}
+
 export function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    return migrate(JSON.parse(raw));
   } catch (e) {
     return null;
   }

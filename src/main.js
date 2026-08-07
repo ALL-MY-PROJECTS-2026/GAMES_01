@@ -23,18 +23,26 @@ import {
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
+import { setLoadingTotal, loadingStep, finishLoading } from './ui/loading.js';
 
 async function boot() {
+  setLoadingTotal(5);
   const { engine, scene, canvas, shadow } = createScene(document.getElementById('app'));
+  // 픽셀 비율 상한 (STACK.md §14) — 고DPI 화면에서 픽셀을 4배 그리는 낭비를 막는다
+  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
   const input = new Input(canvas);
 
+  loadingStep('물리 엔진 준비 중…');
   await initPhysics(scene);
+  loadingStep('초원을 그리는 중…');
   const { obstacles, ground } = buildWorld(scene, shadow);
   addStaticWorld(scene, ground, obstacles);
 
   // 단일 주인공으로 바로 시작 (선택 화면 없음)
+  loadingStep('퇴마사를 부르는 중…');
   const charKey = 'ilim';
   const player = new Player(scene, obstacles, shadow, charKey);
+  loadingStep('원귀를 깨우는 중…');
   const monsters = new MonsterManager(scene, obstacles, shadow);
   const npcs = new NPCManager(scene, obstacles, shadow);
   const camRig = new ThirdPersonCamera(scene);
@@ -242,9 +250,25 @@ async function boot() {
     }
   };
 
+  // 고정 스텝 루프 (STACK.md §14) — 로직은 1/60로 고정, 렌더만 가변.
+  // 가변 delta를 그대로 쓰면 120Hz 모니터에서 이동·쿨다운이 배로 빨라진다.
+  const FIXED_STEP = 1 / 60;
+  const MAX_STEPS = 5; // 탭 복귀 등으로 크게 밀렸을 때 따라잡기 상한
+  let accumulator = 0;
+
+  // 플레이어 모델까지 실제로 붙은 뒤에 로딩 화면을 걷는다
+  await scene.whenReadyAsync();
+  finishLoading();
+
   engine.runRenderLoop(() => {
-    const delta = Math.min(Math.max(engine.getDeltaTime() / 1000, 0.001), 0.05);
-    update(delta);
+    accumulator += Math.min(engine.getDeltaTime() / 1000, 0.25);
+    let steps = 0;
+    while (accumulator >= FIXED_STEP && steps < MAX_STEPS) {
+      update(FIXED_STEP);
+      accumulator -= FIXED_STEP;
+      steps++;
+    }
+    if (steps === MAX_STEPS) accumulator = 0;
     scene.render();
   });
 }

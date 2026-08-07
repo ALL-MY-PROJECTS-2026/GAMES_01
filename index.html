@@ -4,6 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>귀곡의 초원</title>
+  <meta name="description" content="밤의 초원을 정화하는 쿼터뷰 액션 RPG. 브라우저에서 바로 플레이." />
+  <meta property="og:title" content="귀곡의 초원" />
+  <meta property="og:description" content="밤의 초원을 정화하는 쿼터뷰 액션 RPG. 브라우저에서 바로 플레이." />
+  <meta property="og:type" content="website" />
+  <!-- 파비콘: 외부 요청 없이 인라인 SVG (퇴마 부적을 형상화한 마름모) -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111a27'/%3E%3Cpath d='M16 5l8 11-8 11-8-11z' fill='%23ffb03a'/%3E%3Cpath d='M16 11l3.5 5-3.5 5-3.5-5z' fill='%23111a27'/%3E%3C/svg%3E" />
+  <!-- Pretendard 동적 서브셋 (OFL) — unicode-range 분할본이라 쓰는 글자 조각만 내려받는다 -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" as="style" crossorigin
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <style>
     /* 플랫 로우폴리 아트에 맞춘 미니멀 UI — 어두운 반투명 패널 + 앰버 액센트 */
     :root {
@@ -185,10 +195,44 @@
     #combo.pop { animation: comboPop 0.25s ease-out; }
     @keyframes comboPop { 0% { transform: scale(0.6); opacity: 0.4; }
       60% { transform: scale(1.22); opacity: 1; } 100% { transform: scale(1); } }
+
+    /* ── 로딩 화면 (STACK.md §14) ── */
+    #loading { position: fixed; inset: 0; z-index: 50; background: #0b0d12; color: var(--text);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+      transition: opacity 0.45s ease-out; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    .load-title { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
+    .load-sub { font-size: 12.5px; color: var(--muted); margin-top: -12px; }
+    .load-track { width: 260px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.10); overflow: hidden; }
+    #load-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px;
+      transition: width 0.25s ease-out; }
+    #load-status { font-size: 11.5px; color: var(--muted); }
+    .load-keys { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+      max-width: 460px; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+    .load-keys span { display: flex; align-items: center; gap: 5px; }
+    .load-keys b { display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px;
+      background: rgba(255,255,255,0.10); color: var(--text); font-size: 10px; font-weight: 700; }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <div id="loading">
+    <div class="load-title">귀곡의 초원</div>
+    <div class="load-sub">밤의 초원을 정화하는 쿼터뷰 액션 RPG</div>
+    <div class="load-track"><div id="load-fill"></div></div>
+    <div id="load-status">준비하는 중…</div>
+    <div class="load-keys">
+      <span><b>클릭</b> 이동 · 공격</span>
+      <span><b>우클릭</b> 술법</span>
+      <span><b>Space</b> 회피</span>
+      <span><b>Shift</b> 달리기</span>
+      <span><b>2</b><b>3</b><b>4</b> 무기</span>
+      <span><b>1</b> 회복</span>
+      <span><b>K</b> 수련</span>
+      <span><b>E</b> 대화</span>
+    </div>
+  </div>
   <div id="hud">
     <div id="hitflash"></div>
     <div id="dmg-layer"></div>
