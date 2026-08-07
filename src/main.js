@@ -63,6 +63,7 @@ async function boot() {
   monsters.setProjectiles(projectiles);
   const vfx = new VFX(scene);
   player.vfx = vfx;
+  projectiles.vfx = vfx;
   // 솔로 플레이: 선택한 캐릭터 한 명만 등장 (동료 AI 비활성)
   const companions = new CompanionManager(scene, shadow, []);
   const party = [player];

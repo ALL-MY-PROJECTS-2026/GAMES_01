@@ -63,14 +63,34 @@ export class ProjectileManager {
 
   // KayKit 화살을 미리 불러 원본으로 삼는다 (실패 시 절차적 화살을 그대로 사용)
   async _loadKitArrow() {
-    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 0.9 });
+    // 바닥 위에서 잘 읽히도록 크게 만든다
+    const kit = await loadKitMesh(this.scene, 'arrow.gltf', { height: 1.5 });
     if (!kit) return;
     // 모델의 긴 축을 진행 방향(+Z)에 맞춘다
     kit.rotation.x = Math.PI / 2;
     const holder = new TransformNode('kitArrowTemplate', this.scene);
     kit.parent = holder;
-    holder.setEnabled(false);
     for (const m of kit.getChildMeshes()) m.applyFog = false;
+
+    // 발광 트레이서 — 화살 뒤로 늘어난 빛줄기라 배경과 구별된다
+    const glow = MeshBuilder.CreatePlane('arrowGlow', { width: 0.42, height: 2.2 }, this.scene);
+    const gm = new StandardMaterial('arrowGlowMat', this.scene);
+    gm.emissiveColor = Color3.FromHexString('#ffd666');
+    gm.diffuseColor = new Color3(0, 0, 0);
+    gm.specularColor = new Color3(0, 0, 0);
+    gm.disableLighting = true;
+    gm.backFaceCulling = false;
+    gm.alphaMode = 2;                 // ALPHA_ADD
+    gm.alpha = 0.85;
+    glow.material = gm;
+    // 평면을 지면에 눕힌다 — 로컬 +Y(긴 축)가 진행 방향 +Z로 간다
+    glow.rotation.x = Math.PI / 2;
+    glow.position.z = -0.6;           // 화살 뒤로 늘어진 빛줄기
+    glow.isPickable = false;
+    glow.applyFog = false;
+    glow.parent = holder;
+
+    holder.setEnabled(false);
     this.arrowTemplate = holder;
     this.kitArrow = true;
   }
@@ -179,6 +199,10 @@ export class ProjectileManager {
         const dz = pos.z - m.group.position.z;
         if (dx * dx + dz * dz < 0.72 * 0.72 && pos.y < 1.6) {
           const killed = m.takeDamage(p.damage, p.dirN, p.knock);
+          if (this.vfx) {
+            this.vfx.burst(m.group.position, { size: 1.4, color: '#ffd666', dur: 0.26 });
+            this.vfx.sparks(m.group.position, { count: 10, color: '#ffe9a8', power: 4.5, size: 0.2 });
+          }
           if (onHit) onHit(m, killed);
           this._remove(i);
           continue outer;

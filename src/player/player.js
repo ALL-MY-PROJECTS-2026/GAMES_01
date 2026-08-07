@@ -617,8 +617,11 @@ export class Player {
     );
 
     if (w.type === 'ranged') {
-      this.play('shoot', true, w.animScale);
-      this.lockTimer = 0.14;
+      // 석궁 장전 숙련 — 레벨이 낮으면 느리게, 오를수록 빨라진다
+      const reloadMul = Math.max(0.55, Math.min(1.9, 1.9 - stats.level * 0.09));
+      this.attackCd = (w.cd * reloadMul) / aspd;
+      this.play('shoot', true, w.animScale / reloadMul);
+      this.lockTimer = 0.14 * reloadMul;
       this.currentLunge = 0;
       this.lungeUntil = 0;
       sfx.shoot();
@@ -632,6 +635,10 @@ export class Player {
           Math.round(weaponDamage(w.damage, this.weapon) * this._dmgMul(this.weapon)),
           w.knock, '#ffd666', w.projectile || 'bolt'
         );
+        if (this.vfx) {
+          this.vfx.burst(origin, { size: 0.9, color: '#ffd666', dur: 0.16 });
+          this.vfx.sparks(origin, { count: 6, color: '#ffe9a8', power: 3, size: 0.16 });
+        }
       }
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
