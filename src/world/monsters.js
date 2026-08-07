@@ -32,7 +32,35 @@ export const MONSTER_TYPES = {
     hp: 45, damage: 8, speed: 5.4, wanderSpeed: 1.8, aggro: 13, attackRange: 1.8,
     xp: 20, gold: [6, 12], jelly: 1,
     barY: 1.7, ring: [30, 70],
-    model: { file: 'Fox.glb', height: 1.1, yaw: 0, clips: { idle: 'Survey', walk: 'Walk', run: 'Run' } }
+    model: { file: 'Fox.glb', height: 1.1, clips: { idle: 'Survey', walk: 'Walk', run: 'Run' } }
+  },
+  // 골귀(骨鬼) — 뼈만 남은 무사. 느리지만 단단하고 한 방이 무겁다
+  bone: {
+    name: '골귀',
+    hp: 90, damage: 14, speed: 2.6, wanderSpeed: 0.8, aggro: 11, attackRange: 2.3,
+    xp: 38, gold: [12, 20], jelly: 2,
+    barY: 2.3, ring: [50, 90],
+    model: {
+      file: 'Skeleton_Warrior.glb', height: 1.95,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: '1H_Melee_Attack_Chop', hit: 'Hit_A', death: 'Death_A'
+      }
+    }
+  },
+  // 뼈 졸개 — 약하지만 무리로 몰려온다
+  minion: {
+    name: '뼈 졸개',
+    hp: 34, damage: 6, speed: 4.2, wanderSpeed: 1.4, aggro: 12, attackRange: 1.9,
+    xp: 15, gold: [4, 9], jelly: 1,
+    barY: 1.8, ring: [25, 65],
+    model: {
+      file: 'Skeleton_Minion.glb', height: 1.5,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: 'Unarmed_Melee_Attack_Punch_A', hit: 'Hit_A', death: 'Death_A'
+      }
+    }
   }
 };
 
@@ -188,24 +216,38 @@ class Monster {
     }
 
     this.anims = {};
+    this.animDur = {};
     for (const g of res.animationGroups) {
       g.stop();
       this.anims[g.name] = g;
+      const a = g.targetedAnimations[0] ? g.targetedAnimations[0].animation : null;
+      this.animDur[g.name] = (g.to - g.from) / (a ? a.framePerSecond : 60);
       for (const ta of g.targetedAnimations) {
         ta.animation.enableBlending = true;
         ta.animation.blendingSpeed = 0.12;
       }
     }
-    this.playAnim(m.clips.idle);
+    this.playAnim('idle');
   }
 
-  playAnim(name, speed = 1) {
-    if (!this.anims || this.animName === name) return;
-    const next = this.anims[name];
-    if (!next) return;
+  // key는 논리 이름(idle/walk/run/attack/hit/death) — 몬스터별 클립 맵으로 변환된다
+  playAnim(key, speed = 1, loop = true) {
+    if (!this.anims) return;
+    const name = this.cfg.model.clips[key];
+    const next = name && this.anims[name];
+    if (!next || this.animName === name) return;
     if (this.animName && this.anims[this.animName]) this.anims[this.animName].stop();
-    next.start(true, speed);
+    next.start(loop, speed);
     this.animName = name;
+    return this.animDur[name] / speed;
+  }
+
+  // 공격·피격·사망처럼 한 번만 재생하고 끝나는 동작
+  playOneShot(key, speed = 1) {
+    if (!this.anims || !this.cfg.model.clips[key]) return 0;
+    const dur = this.playAnim(key, speed, false) || 0;
+    this.animLock = Math.max(this.animLock || 0, dur);
+    return dur;
   }
 
   placeRandom() {
@@ -240,11 +282,17 @@ class Monster {
       // 사망 연출: 막타 방향으로 시체가 날아간다 (PHYSICS.md §2-4)
       this.deathT = 0.55;
       this.knock.scaleInPlace(1.4);
-      this.velY = Math.max(this.velY, 4.5);
       this.hpBg.setEnabled(false);
       this.hpBar.setEnabled(false);
+      // 사망 클립이 있으면 쓰러지는 연출로, 없으면 시체가 날아가는 연출로
+      if (this.cfg.model && this.cfg.model.clips.death) {
+        this.playOneShot('death', 1);
+      } else {
+        this.velY = Math.max(this.velY, 4.5);
+      }
       return true;
     }
+    this.playOneShot('hit', 1.6);
     return false;
   }
 
@@ -264,9 +312,13 @@ class Monster {
         pos.x += this.knock.x * delta;
         pos.z += this.knock.z * delta;
         this.knock.scaleInPlace(Math.exp(-2 * delta));
-        this.body.rotation.x += 9 * delta;
-        const s = Math.max(0.25, this.deathT / 0.55);
-        this.body.scaling.set(s, s, s);
+        const hasDeathClip = this.cfg.model && this.cfg.model.clips.death;
+        if (!hasDeathClip) {
+          // 클립이 없는 몬스터만 회전하며 작아지는 연출을 쓴다
+          this.body.rotation.x += 9 * delta;
+          const s = Math.max(0.25, this.deathT / 0.55);
+          this.body.scaling.set(s, s, s);
+        }
         if (this.deathT <= 0 || pos.y < -1) {
           this.deathT = 0;
           this.setVisible(false);
@@ -275,6 +327,8 @@ class Monster {
           this.knock.setAll(0);
           this.body.rotation.x = 0;
           this.body.scaling.set(1, 1, 1);
+          this.animName = '';
+          this.animLock = 0;
         }
       }
       this.respawnT -= delta;
@@ -352,6 +406,7 @@ class Monster {
       if (dist < this.cfg.attackRange && this.attackT <= 0) {
         this.attackT = ATTACK_INTERVAL;
         this.attackAnim = 0.3;
+        this.playOneShot('attack', 1.3);
         target.takeDamage(this.cfg.damage, { x: nx, z: nz });
       }
     } else {
@@ -383,10 +438,13 @@ class Monster {
       hop = Math.sin(Math.max(0, this.attackAnim) / 0.3 * Math.PI) * 0.35;
     }
     if (this.cfg.model) {
-      const clips = this.cfg.model.clips;
-      if (this._moveState === 'run') this.playAnim(clips.run, 1.3);
-      else if (this._moveState === 'walk') this.playAnim(clips.walk, 1.1);
-      else this.playAnim(clips.idle);
+      // 원샷(공격/피격) 재생 중에는 이동 애니메이션으로 덮어쓰지 않는다
+      this.animLock = Math.max(0, (this.animLock || 0) - delta);
+      if (this.animLock <= 0) {
+        if (this._moveState === 'run') this.playAnim('run', 1.3);
+        else if (this._moveState === 'walk') this.playAnim('walk', 1.1);
+        else this.playAnim('idle');
+      }
       this.body.position.y = hop;
     } else if (this.typeKey === 'slime') {
       this.body.position.y = 0.25 + Math.sin(this.bounce) * 0.18 + hop;
@@ -399,7 +457,7 @@ class Monster {
 }
 
 export class MonsterManager {
-  constructor(scene, obstacles, shadow, counts = { slime: 8, mushroom: 5, fox: 4 }) {
+  constructor(scene, obstacles, shadow, counts = { slime: 6, mushroom: 3, fox: 3, minion: 5, bone: 4 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {
