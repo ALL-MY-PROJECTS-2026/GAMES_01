@@ -48,6 +48,21 @@ export const MONSTER_TYPES = {
       }
     }
   },
+  // 마검졸 — 마물이 아닌 인간 산적 (REFERENCE.md T1). 방패를 들고 끈질기게 파고든다
+  bandit: {
+    name: '마검졸',
+    hp: 70, damage: 11, speed: 3.8, wanderSpeed: 1.1, aggro: 12, attackRange: 2.1,
+    xp: 30, gold: [15, 26], jelly: 1,
+    barY: 2.2, ring: [35, 75],
+    model: {
+      file: 'Knight.glb', height: 1.85,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: '1H_Melee_Attack_Slice_Diagonal', hit: 'Hit_A', death: 'Death_A'
+      },
+      props: ['1H_Sword', 'Round_Shield']
+    }
+  },
   // 뼈 졸개 — 약하지만 무리로 몰려온다
   minion: {
     name: '뼈 졸개',
@@ -210,9 +225,13 @@ class Monster {
     holder.position.y = -min.y * scale;
     holder.rotation.y = m.yaw || 0;
 
+    // 모델 내장 무기 프롭은 기본적으로 끄고, 지정된 것만 켠다
+    const wanted = m.props || [];
     for (const mesh of res.meshes) {
       if (shadow && mesh.getTotalVertices && mesh.getTotalVertices() > 0) shadow.addShadowCaster(mesh);
       mesh.metadata = { monster: this };
+      const parent = mesh.parent && mesh.parent.name;
+      if (parent && /^handslot/i.test(parent)) mesh.setEnabled(wanted.includes(mesh.name));
     }
 
     this.anims = {};
@@ -457,7 +476,7 @@ class Monster {
 }
 
 export class MonsterManager {
-  constructor(scene, obstacles, shadow, counts = { slime: 6, mushroom: 3, fox: 3, minion: 5, bone: 4 }) {
+  constructor(scene, obstacles, shadow, counts = { slime: 5, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {
