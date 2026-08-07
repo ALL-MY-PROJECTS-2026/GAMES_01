@@ -8,6 +8,7 @@ export class Input {
     this.attackQueued = false;
     this.attackQueuedT = 0;
     this.interactQueued = false;
+    this.dodgeQueued = false;
 
     const queueAttack = () => {
       this.attackQueued = true;
@@ -16,6 +17,7 @@ export class Input {
     this.queueAttack = queueAttack;
 
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !this.keys.has('Space')) this.dodgeQueued = true;
       this.keys.add(e.code);
       if (e.code === 'KeyF') queueAttack();
       if (e.code === 'KeyE') this.interactQueued = true;
@@ -47,6 +49,12 @@ export class Input {
   consumeInteract() {
     const v = this.interactQueued;
     this.interactQueued = false;
+    return v;
+  }
+
+  consumeDodge() {
+    const v = this.dodgeQueued;
+    this.dodgeQueued = false;
     return v;
   }
 }

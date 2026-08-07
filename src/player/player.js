@@ -25,6 +25,11 @@ const GRAVITY = 30;
 const JUMP_SPEED = 9.5;
 const MAGIC_COST = 20;
 const MAGIC_CD = 0.8;
+// 회피 대시 (PHYSICS.md §4) — 무적으로 파고들거나 빠져나오는 기동
+const DODGE_SPEED = 20;
+const DODGE_TIME = 0.32;
+const DODGE_IFRAME = 0.24;
+const DODGE_CD = 0.75;
 const COMBO_WINDOW = 1.1;
 // 권법 5단 연계: 잽 → 되치기 → 훅(휘두르기) → 어퍼(도약) → 붕권(마무리)
 // 단계별로 클립·재생 구간·속도를 다르게 해서 모션을 구분한다
@@ -79,6 +84,10 @@ export class Player {
     this.mp = this.maxMp;
     this.magicCd = 0;
     this.attackCd = 0;
+    this.dodgeT = 0;
+    this.dodgeCd = 0;
+    this.iframe = 0;
+    this._dodgeDir = new Vector3(0, 0, 0);
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
     this.pendingHit = -1;
@@ -279,7 +288,29 @@ export class Player {
     return true;
   }
 
+  // 회피 대시 — 이동 중이면 그 방향, 아니면 바라보는 방향으로 파고든다
+  tryDodge(moveDir = null) {
+    if (this.dodgeCd > 0 || this.dodgeT > 0 || this.dead) return false;
+    const d = this._dodgeDir;
+    if (moveDir && moveDir.lengthSquared() > 0.001) {
+      d.copyFrom(moveDir).normalize();
+    } else {
+      d.copyFromFloats(Math.sin(this.group.rotation.y), 0, Math.cos(this.group.rotation.y));
+    }
+    this.group.rotation.y = Math.atan2(d.x, d.z);
+    this.dodgeT = DODGE_TIME;
+    this.dodgeCd = DODGE_CD;
+    this.iframe = DODGE_IFRAME;
+    this.lockTimer = 0;
+    this.comboStep = -1;
+    this.comboTimer = 0;
+    this.play('dodge', true, 1.5);
+    sfx.jump();
+    return true;
+  }
+
   takeDamage(amount, dir = null) {
+    if (this.iframe > 0) return; // 회피 무적
     // 체력(VIT) 스탯: 받는 피해 감소 (최소 1)
     amount = Math.max(1, Math.round(amount * damageTakenMul()));
     this.hp = Math.max(0, this.hp - amount);
@@ -548,8 +579,17 @@ export class Player {
     const running = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
     this.speedFov = moving && running && this.onGround ? 0.16 : 0;
 
+    // 회피 대시 입력 (Space) — 대시 중에는 다른 이동을 받지 않는다
+    if (input.consumeDodge && input.consumeDodge()) this.tryDodge(moving ? dir : null);
+
     const move = this._move.setAll(0);
-    if (moving) {
+    if (this.dodgeT > 0) {
+      this.dodgeT -= delta;
+      const ease = Math.max(0.25, this.dodgeT / DODGE_TIME);
+      move.x = this._dodgeDir.x * DODGE_SPEED * ease * delta;
+      move.z = this._dodgeDir.z * DODGE_SPEED * ease * delta;
+      this.speedFov = 0.2;
+    } else if (moving) {
       dir.normalize();
       const run = running ? 2.1 : 1;
       move.copyFrom(dir).scaleInPlace(
@@ -581,12 +621,7 @@ export class Player {
       this.knockV.scaleInPlace(Math.exp(-7 * delta));
     }
 
-    if (this.onGround && input.pressed('Space')) {
-      this.velY = JUMP_SPEED;
-      this.onGround = false;
-      this.play('jump', true);
-      sfx.jump();
-    }
+    // Space는 회피 대시에 배정 — 점프는 사용하지 않는다
 
     const pos = this.group.position;
     pos.x += move.x;
@@ -608,6 +643,8 @@ export class Player {
 
     this.attackCd = Math.max(0, this.attackCd - delta);
     this.magicCd = Math.max(0, this.magicCd - delta);
+    this.dodgeCd = Math.max(0, this.dodgeCd - delta);
+    this.iframe = Math.max(0, this.iframe - delta);
     if (this.mp < this.maxMp) {
       this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);
       setMP(Math.round(this.mp), this.maxMp);
@@ -618,7 +655,7 @@ export class Player {
       if (this.comboTimer <= 0) this.comboStep = -1;
     }
 
-    if (this.groups && this.onGround && this.lockTimer <= 0) {
+    if (this.groups && this.onGround && this.lockTimer <= 0 && this.dodgeT <= 0) {
       if (moving && running) this.play('run');
       else if (moving) this.play('walk');
       else this.play('idle');

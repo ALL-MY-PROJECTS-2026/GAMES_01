@@ -10,7 +10,9 @@ const KAYKIT_CLIPS = {
   sword1: '1H_Melee_Attack_Stab',              // 찌르기
   sword2: '1H_Melee_Attack_Slice_Horizontal',  // 가로베기
   cast: 'Spellcast_Shoot', shoot: '1H_Ranged_Shoot',
-  hit: 'Hit_A', death: 'Death_A'
+  hit: 'Hit_A', death: 'Death_A',
+  dodge: 'Dodge_Forward', dodgeBack: 'Dodge_Backward',
+  block: 'Blocking', blockHit: 'Block_Hit', cheer: 'Cheer'
 };
 
 // RobotExpressive(기존 샘플 모델) — 클립이 적어 구간 슬라이스로 동작을 나눈다
@@ -19,7 +21,8 @@ const ROBOT_CLIPS = {
   punch1: 'Punch', punch2: 'Punch', punch3: 'Wave', punch4: 'Jump', punch5: 'Punch',
   sword1: 'Punch', sword2: 'Wave',
   cast: 'Wave', shoot: 'Punch',
-  hit: 'Idle', death: 'Death'
+  hit: 'Idle', death: 'Death',
+  dodge: 'Running', dodgeBack: 'Running', block: 'Idle', blockHit: 'Idle', cheer: 'ThumbsUp'
 };
 
 // 플레이어 3인 — 선택한 1인을 조작하고 나머지 둘은 동료 AI가 된다 (슬레이어즈식 소프트 락:

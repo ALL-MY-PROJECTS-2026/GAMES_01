@@ -142,7 +142,8 @@ async function boot() {
   const talkHint = document.getElementById('talk-hint');
   const idleInput = {
     pressed: () => false,
-    consumeAttack: () => false
+    consumeAttack: () => false,
+    consumeDodge: () => false
   };
 
   function update(delta) {
