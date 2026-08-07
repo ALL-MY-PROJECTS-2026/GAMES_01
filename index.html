@@ -102,20 +102,25 @@
 
     /* ── 하단 마법창 ── */
     #spellbar { position: absolute; bottom: 76px; left: 50%; transform: translateX(-50%);
-      display: flex; gap: 7px; padding: 8px; pointer-events: auto; }
-    .spell { width: 58px; height: 58px; border-radius: 9px; position: relative; overflow: hidden;
+      display: flex; flex-direction: column; gap: 5px; padding: 8px; pointer-events: auto; }
+    .spell-row { display: flex; gap: 5px; align-items: center; }
+    .spell-tag { width: 34px; font-size: 10px; font-weight: 700; text-align: right;
+      padding-right: 4px; opacity: 0.85; }
+    .spell { width: 50px; height: 50px; border-radius: 9px; position: relative; overflow: hidden;
       background: rgba(255, 255, 255, 0.05); border: 1px solid var(--edge); cursor: pointer;
       transition: border-color 0.12s, background 0.12s; }
     .spell:hover { border-color: var(--edge-strong); }
-    .spell.active { border-color: #7fb0ff; background: rgba(127, 176, 255, 0.18);
-      box-shadow: 0 0 0 1px rgba(127, 176, 255, 0.4); }
+    .spell.active { border-color: var(--spell-color, #7fb0ff);
+      background: color-mix(in srgb, var(--spell-color, #7fb0ff) 22%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--spell-color, #7fb0ff) 45%, transparent); }
     .spell.poor { opacity: 0.42; }
     .spell-key { position: absolute; top: 3px; left: 5px; font-size: 9px; color: var(--muted);
       font-weight: 700; z-index: 2; }
-    .spell-icon { position: absolute; top: 12px; left: 0; right: 0; text-align: center;
-      font-size: 21px; z-index: 1; }
-    .spell-name { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center;
-      font-size: 9.5px; color: var(--text); font-weight: 600; z-index: 1; }
+    .spell-icon { position: absolute; top: 9px; left: 0; right: 0; text-align: center;
+      font-size: 19px; z-index: 1; }
+    .spell-name { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center;
+      font-size: 8.5px; color: var(--text); font-weight: 600; z-index: 1;
+      overflow: hidden; white-space: nowrap; }
     .spell-cd { position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
       background: rgba(10, 12, 18, 0.72); z-index: 3; transition: height 0.08s linear; }
 
@@ -137,6 +142,11 @@
     #dialog-text { font-size: 14px; line-height: 1.6; min-height: 44px; }
     #dialog-next { font-size: 11px; color: var(--muted); text-align: right; margin-top: 7px; }
 
+    .save-row { display: flex; gap: 8px; margin-top: 10px; }
+    .save-btn { flex: 1; padding: 7px 10px; font: inherit; font-size: 12px; cursor: pointer;
+      color: var(--text); background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; }
+    .save-btn:hover { background: rgba(255, 255, 255, 0.13); }
     /* ── 공용 창(상점/수련/인벤토리) ── */
     #shop, #skillwin { display: none; position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%); pointer-events: auto; padding: 16px 18px; }
@@ -402,6 +412,12 @@
       <div id="skill-points">스탯 포인트 0 · 스킬 포인트 0</div>
       <div id="skill-trees"></div>
       <div class="shop-hint">레벨업마다 스탯 +3 · 스킬 +1</div>
+      <div class="save-row">
+        <button id="save-export" class="save-btn">캐릭터 저장하기</button>
+        <button id="save-import" class="save-btn">불러오기</button>
+        <input id="save-file" type="file" accept="application/json,.json" hidden />
+      </div>
+      <div id="save-msg" class="shop-hint"></div>
     </div>
     <div id="dialog" class="panel">
       <div id="dialog-name"></div>

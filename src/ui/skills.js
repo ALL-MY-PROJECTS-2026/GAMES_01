@@ -1,5 +1,7 @@
 import { SKILL_TREES } from '../core/skills.js';
-import { stats, learnSkill, investStat, ATTR_DEFS, ATTR_MAX } from '../core/stats.js';
+import {
+  stats, learnSkill, investStat, ATTR_DEFS, ATTR_MAX, exportSave, importSave
+} from '../core/stats.js';
 
 let open = false;
 
@@ -91,4 +93,36 @@ export function renderSkills() {
 
 export function initSkills() {
   document.getElementById('skill-close').addEventListener('click', closeSkills);
+
+  // 캐릭터 정보를 파일로 주고받는다 — 다른 컴퓨터/브라우저로 옮길 때
+  const msg = document.getElementById('save-msg');
+  const file = document.getElementById('save-file');
+  const say = (text) => { if (msg) msg.textContent = text; };
+
+  document.getElementById('save-export').addEventListener('click', () => {
+    say(exportSave() ? '저장 파일을 내려받았습니다.' : '저장할 정보가 없습니다.');
+  });
+
+  document.getElementById('save-import').addEventListener('click', () => file.click());
+
+  file.addEventListener('change', async () => {
+    const f = file.files && file.files[0];
+    file.value = '';
+    if (!f) return;
+    const res = await importSave(f);
+    if (!res.ok) {
+      const why = {
+        parse: '파일을 읽을 수 없습니다 (형식 오류)',
+        format: '이 게임의 저장 파일이 아닙니다',
+        version: '더 새로운 버전의 저장 파일입니다',
+        storage: '브라우저 저장소에 쓸 수 없습니다',
+        read: '파일을 여는 데 실패했습니다'
+      };
+      say(why[res.reason] || '불러오지 못했습니다');
+      return;
+    }
+    // 화면에 떠 있는 값과 어긋나지 않도록 새로고침해서 통째로 다시 읽는다
+    say(`Lv.${res.level} 캐릭터를 불러왔습니다. 곧 새로고침합니다...`);
+    setTimeout(() => window.location.reload(), 900);
+  });
 }

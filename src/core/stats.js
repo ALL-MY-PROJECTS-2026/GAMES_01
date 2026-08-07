@@ -7,7 +7,7 @@ import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 // 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -50,7 +50,12 @@ export function damageTakenMul() {
 
 let playerRef = null;
 
+// 불러오기 직후에는 저장을 막는다. 새로고침 전까지 게임이 계속 돌면서
+// 자동 저장을 하면 방금 불러온 내용을 그대로 덮어써 버린다.
+let saveLocked = false;
+
 export function save() {
+  if (saveLocked) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       version: SAVE_VERSION,
@@ -58,7 +63,8 @@ export function save() {
       xp: stats.xp,
       xpMax: stats.xpMax,
       gold: stats.gold,
-      jelly: stats.items.jelly,
+      // 소지품 전체를 저장한다 (v2까지는 혼백만 저장해서 나머지 아이템이 사라졌다)
+      items: { ...stats.items },
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
@@ -78,6 +84,10 @@ function migrate(data) {
     // v1: 스탯/스킬 포인트가 없던 시절 — 지나간 레벨업만큼 소급 지급은 bindPlayer가 처리
     data.attrs = data.attrs || { str: 0, vit: 0, dex: 0, mag: 0 };
   }
+  if (v < 3) {
+    // v2: 혼백 개수만 따로 저장하던 형식 → 소지품 묶음으로 옮긴다
+    data.items = { jelly: data.jelly || 0 };
+  }
   data.version = SAVE_VERSION;
   return data;
 }
@@ -92,6 +102,58 @@ export function load() {
   }
 }
 
+/** 캐릭터 정보를 파일로 내보낸다 — 다른 컴퓨터로 옮길 때 쓴다 */
+export function exportSave() {
+  save();
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) return false;
+  const blob = new Blob([raw], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `guigok-save-lv${stats.level}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // 브라우저가 다운로드를 시작할 틈을 준 뒤 해제한다
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}
+
+/**
+ * 내보낸 파일을 되읽어 저장소에 덮어쓴다.
+ * 형식이 맞는지 확인만 하고 반영은 새로고침에 맡긴다 — 게임 도중에 갈아끼우면
+ * 이미 화면에 떠 있는 값들과 어긋나기 때문이다.
+ */
+export function importSave(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onerror = () => resolve({ ok: false, reason: 'read' });
+    reader.onload = () => {
+      let data;
+      try {
+        data = JSON.parse(String(reader.result));
+      } catch (e) {
+        return resolve({ ok: false, reason: 'parse' });
+      }
+      if (!data || typeof data.level !== 'number') {
+        return resolve({ ok: false, reason: 'format' });
+      }
+      const migrated = migrate(data);
+      if (!migrated) return resolve({ ok: false, reason: 'version' });
+      try {
+        saveLocked = true;
+        localStorage.setItem(SAVE_KEY, JSON.stringify(migrated));
+      } catch (e) {
+        saveLocked = false;
+        return resolve({ ok: false, reason: 'storage' });
+      }
+      resolve({ ok: true, level: migrated.level });
+    };
+    reader.readAsText(file);
+  });
+}
+
 export function bindPlayer(player) {
   playerRef = player;
 
@@ -101,7 +163,10 @@ export function bindPlayer(player) {
     stats.xp = data.xp || 0;
     stats.xpMax = data.xpMax || 25;
     stats.gold = data.gold || 0;
-    stats.items.jelly = data.jelly || 0;
+    // 저장된 소지품을 통째로 복원한다
+    for (const k of Object.keys(stats.items)) delete stats.items[k];
+    Object.assign(stats.items, data.items || { jelly: data.jelly || 0 });
+    stats.items.jelly = stats.items.jelly || 0;
     Object.assign(stats.upgrades, data.upgrades || {});
     stats.skills = data.skills || {};
     // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급

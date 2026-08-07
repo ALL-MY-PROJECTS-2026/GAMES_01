@@ -8,7 +8,7 @@ import {
 
 // 마법·타격 이펙트 (STACK.md §9)
 // 규칙: 라이팅 계산 금지 · 깊이 쓰기 끔 · 오브젝트 풀링 · 동시 개수 상한 · 고정 스텝 시계 사용
-const MAX_LIVE = 24;   // 모바일 오버드로우 방어 — 초과 시 가장 오래된 것부터 회수
+const MAX_LIVE = 48;   // 모바일 오버드로우 방어 — 초과 시 가장 오래된 것부터 회수
 
 export function vfxMaterial(scene, name, hex, additive = true) {
   const mat = new StandardMaterial('vfx_' + name, scene);
@@ -275,9 +275,208 @@ export class VFX {
     const dz = to.z - from.z;
     const len = Math.max(0.001, Math.hypot(dx, dz));
     mesh.position.set((from.x + to.x) / 2, 1.1, (from.z + to.z) / 2);
-    mesh.rotation.y = Math.atan2(dx, dz);
+    mesh.rotation.set(0, Math.atan2(dx, dz), 0);
     mesh.scaling.set(width, width, len);
     this._push({ mesh, pool: this.beamPool, t: 0, dur, kind: 'beam' });
+  }
+
+  /** 기울어진 빛줄기 — 유성·낙뢰·화살길처럼 3차원으로 뻗는 선 */
+  bolt3(from, to, { width = 0.16, color = '#ffffff', dur = 0.24, kind = 'trail', delay = 0 } = {}) {
+    const mesh = this.beamPool.take();
+    this._tint(mesh, color);
+    const fy = from.y || 0;
+    const ty = to.y || 0;
+    const len = Math.max(0.001, Math.hypot(to.x - from.x, ty - fy, to.z - from.z));
+    mesh.position.set((from.x + to.x) / 2, (fy + ty) / 2, (from.z + to.z) / 2);
+    mesh.lookAt(new Vector3(to.x, ty, to.z));
+    mesh.scaling.set(width, width, len);
+    if (delay > 0) mesh.material.alpha = 0;
+    this._push({ mesh, pool: this.beamPool, t: 0, dur, kind, delay });
+  }
+
+  /** 유성 — 비스듬히 떨어져 지면에서 터진다 */
+  meteor(pos, { color = '#ff7a4e', size = 2.4 } = {}) {
+    const from = { x: pos.x - 4.5, y: 17, z: pos.z - 6 };
+    const to = { x: pos.x, y: 0.3, z: pos.z };
+    this.bolt3(from, to, { width: 1.0, color: '#ffe9a8', dur: 0.16 });
+    this.bolt3(from, to, { width: 0.5, color, dur: 0.24 });
+    this.shockwave(pos, { radius: size * 1.7, color, dur: 0.45 });
+    this.burst(pos, { size, color, dur: 0.34 });
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 18, color, power: 9, size: 0.3, spread: 'up' });
+  }
+
+  /** 화살비 — 가는 화살이 촘촘히 비스듬히 꽂힌다 */
+  arrowFall(pos, { color = '#ffd27a', count = 6, radius = 1.8 } = {}) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * radius;
+      const gx = pos.x + Math.cos(a) * rr;
+      const gz = pos.z + Math.sin(a) * rr;
+      this.bolt3({ x: gx - 1.3, y: 13, z: gz - 1.7 }, { x: gx, y: 0.15, z: gz },
+        { width: 0.1, color, dur: 0.2, delay: i * 0.035 });
+    }
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 8, color, power: 4, size: 0.18, spread: 'flat' });
+  }
+
+  /** 낙뢰 — 지그재그로 머리 위에 내리꽂힌다 */
+  lightning(pos, { color = '#a9d4ff' } = {}) {
+    let prev = { x: pos.x + (Math.random() - 0.5) * 1.4, y: 13, z: pos.z + (Math.random() - 0.5) * 1.4 };
+    for (let i = 1; i <= 3; i++) {
+      const t = i / 3;
+      const nx = pos.x + (1 - t) * (Math.random() - 0.5) * 2.6;
+      const nz = pos.z + (1 - t) * (Math.random() - 0.5) * 2.6;
+      const ny = 13 * (1 - t) + 0.2;
+      this.bolt3(prev, { x: nx, y: ny, z: nz },
+        { width: 0.13 + 0.09 * t, color, dur: 0.18 });
+      prev = { x: nx, y: ny, z: nz };
+    }
+    this.sparks({ x: pos.x, y: 0.3, z: pos.z }, { count: 12, color, power: 7, size: 0.22 });
+  }
+
+  /** 선풍참 — 칼바람이 몸을 축으로 여러 겹 돈다 */
+  whirl(pos, { radius = 4.2, color = '#cfe4ff' } = {}) {
+    for (let i = 0; i < 3; i++) {
+      const mesh = this.discPool.take();
+      this._tint(mesh, color);
+      mesh.position.set(pos.x, 0.7 + i * 0.5, pos.z);
+      mesh.rotation.set(Math.PI / 2, 0, i * 2.1);
+      mesh.scaling.setAll(radius * 0.5);
+      this._push({ mesh, pool: this.discPool, t: 0, dur: 0.5, kind: 'whirl',
+        base: radius, spin: 15 - i * 3, delay: i * 0.07 });
+    }
+    this.sparks({ x: pos.x, y: 0.5, z: pos.z },
+      { count: 16, color, power: 6, size: 0.22, spread: 'flat' });
+  }
+
+  /** 지진격 — 파문이 겹쳐 퍼지고 돌덩이가 솟는다 */
+  quake(pos, { radius = 4.8, color = '#c8a06a' } = {}) {
+    for (let i = 0; i < 3; i++) {
+      const mesh = this.novaPool.take();
+      this._tint(mesh, color);
+      mesh.position.set(pos.x, 0.06 + i * 0.01, pos.z);
+      mesh.scaling.setAll(radius * 0.15);
+      this._push({ mesh, pool: this.novaPool, t: 0, dur: 0.6, kind: 'nova',
+        base: radius * (0.7 + i * 0.25), delay: i * 0.1 });
+    }
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + Math.random();
+      const rr = radius * 0.55;
+      const gx = pos.x + Math.cos(a) * rr;
+      const gz = pos.z + Math.sin(a) * rr;
+      this.bolt3({ x: gx, y: 0, z: gz }, { x: gx, y: 2.2 + Math.random(), z: gz },
+        { width: 0.42, color, dur: 0.4 });
+    }
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 24, color, power: 8, size: 0.3, spread: 'up' });
+  }
+
+  /** 돌풍격 — 지나간 길에 바람 자국이 남는다 */
+  gust(pos, facingY, dist, { color = '#ffd27a' } = {}) {
+    const fx = Math.sin(facingY);
+    const fz = Math.cos(facingY);
+    for (let i = 0; i < 3; i++) {
+      const off = (i - 1) * 0.85;
+      const y = 0.7 + i * 0.35;
+      this.bolt3(
+        { x: pos.x - fz * off, y, z: pos.z + fx * off },
+        { x: pos.x + fx * dist - fz * off, y, z: pos.z + fz * dist + fx * off },
+        { width: 0.17, color, dur: 0.3, delay: i * 0.04 }
+      );
+    }
+    this.shockwave(pos, { radius: 3, color, dur: 0.3 });
+  }
+
+  /** 풍신보 — 뒤로 빠지며 잔상이 흩어진다 */
+  windTrail(pos, facingY, { color = '#9fe4ff' } = {}) {
+    const fx = Math.sin(facingY);
+    const fz = Math.cos(facingY);
+    for (let i = 0; i < 4; i++) {
+      this.burst({ x: pos.x + fx * i * 1.1, z: pos.z + fz * i * 1.1 },
+        { size: 1.4 - i * 0.22, color, dur: 0.3 + i * 0.05 });
+    }
+    this.circle(pos, { radius: 1.8, color, dur: 0.5 });
+  }
+
+  /** 관통시 — 화살길을 따라 빛줄기가 남는다 */
+  lance(origin, dir, len, { color = '#ffd666' } = {}) {
+    const y = origin.y || 1.15;
+    const to = { x: origin.x + dir.x * len, y, z: origin.z + dir.z * len };
+    this.bolt3({ x: origin.x, y, z: origin.z }, to, { width: 0.17, color, dur: 0.26 });
+    this.bolt3({ x: origin.x, y, z: origin.z }, to, { width: 0.05, color: '#ffffff', dur: 0.34 });
+    this.sparks({ x: origin.x, y: 0.4, z: origin.z }, { count: 8, color, power: 5, size: 0.2 });
+  }
+
+  /** 연사 — 부채꼴 섬광이 두 겹으로 퍼진다 */
+  fan(pos, facingY, { color = '#ffe9a8', radius = 4 } = {}) {
+    for (let i = 0; i < 2; i++) {
+      const mesh = this.discPool.take();
+      this._tint(mesh, color);
+      mesh.position.set(pos.x, 1.0 + i * 0.25, pos.z);
+      mesh.rotation.set(Math.PI / 2, 0, -facingY);
+      mesh.scaling.setAll(radius * 0.4);
+      this._push({ mesh, pool: this.discPool, t: 0, dur: 0.32, kind: 'slash',
+        base: radius * (1 + i * 0.3), delay: i * 0.06 });
+    }
+  }
+
+  /** 절족시 — 발밑에 거미줄이 깔려 한동안 남는다 */
+  snare(pos, { radius = 1.8, color = '#9fdca8' } = {}) {
+    const mesh = this.ringPool.take();
+    this._tint(mesh, color);
+    mesh.position.set(pos.x, 0.05, pos.z);
+    mesh.rotation.set(Math.PI / 2, Math.random() * Math.PI, 0);
+    mesh.scaling.setAll(radius);
+    this._push({ mesh, pool: this.ringPool, t: 0, dur: 1.4, kind: 'circle',
+      spin: -0.7, base: radius });
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 8, color, power: 3, size: 0.18, spread: 'flat' });
+  }
+
+  /** 기합 — 함성 고리가 발밑에서 솟아오른다 */
+  cry(pos, { color = '#ffb03a' } = {}) {
+    for (let i = 0; i < 3; i++) {
+      const mesh = this.novaPool.take();
+      this._tint(mesh, color);
+      mesh.position.set(pos.x, 0.4, pos.z);
+      mesh.scaling.setAll(1);
+      this._push({ mesh, pool: this.novaPool, t: 0, dur: 0.85, kind: 'rise',
+        base: 3.4, delay: i * 0.15 });
+    }
+    this.sparks({ x: pos.x, y: 0.6, z: pos.z },
+      { count: 14, color, power: 5, size: 0.24, spread: 'up' });
+  }
+
+  /** 빙백진 보강 — 파문 둘레에 얼음 가시가 솟는다 */
+  frostSpikes(pos, radius, color) {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.random() * 0.4;
+      const gx = pos.x + Math.cos(a) * radius * 0.72;
+      const gz = pos.z + Math.sin(a) * radius * 0.72;
+      this.bolt3({ x: gx, y: 0, z: gz }, { x: gx, y: 1.6 + Math.random() * 0.8, z: gz },
+        { width: 0.3, color, dur: 0.5, delay: i * 0.03 });
+    }
+  }
+
+  /** 조준 보조 — 사거리 원과 착탄 범위를 상시 표시한다 (풀에서 빼두고 계속 재사용) */
+  aimRing(kind, pos, radius, color) {
+    this._aim = this._aim || {};
+    let m = this._aim[kind];
+    if (!m) {
+      m = this.novaPool.take();
+      m.material.alphaMode = Engine.ALPHA_ADD;
+      this._aim[kind] = m;
+    }
+    m.setEnabled(true);
+    m.material.emissiveColor = Color3.FromHexString(color);
+    m.material.alpha = kind === 'range' ? 0.12 : 0.4;
+    m.position.set(pos.x, 0.04, pos.z);
+    m.scaling.setAll(radius);
+  }
+
+  hideAim(kind) {
+    if (this._aim && this._aim[kind]) this._aim[kind].setEnabled(false);
   }
 
   update(delta) {
@@ -296,6 +495,12 @@ export class VFX {
     }
     for (let i = this.live.length - 1; i >= 0; i--) {
       const e = this.live[i];
+      // delay가 남아 있으면 아직 보이지 않는다 (연속 타격의 시차 연출)
+      if (e.delay > 0) {
+        e.delay -= delta;
+        e.mesh.material.alpha = 0;
+        continue;
+      }
       e.t += delta;
       const p = Math.min(1, e.t / e.dur);
 
@@ -346,6 +551,16 @@ export class VFX {
         e.mesh.material.alpha = Math.pow(1 - p, 1.6);
       } else if (e.kind === 'beam') {
         e.mesh.material.alpha = 1 - p;
+      } else if (e.kind === 'trail') {
+        e.mesh.material.alpha = Math.pow(1 - p, 1.4);
+      } else if (e.kind === 'whirl') {
+        e.mesh.rotation.z += e.spin * delta;
+        e.mesh.scaling.setAll(e.base * (0.5 + 0.55 * p));
+        e.mesh.material.alpha = (1 - p) * 0.9;
+      } else if (e.kind === 'rise') {
+        e.mesh.position.y = 0.4 + p * 2.4;
+        e.mesh.scaling.setAll(e.base * (0.3 + 0.9 * p));
+        e.mesh.material.alpha = Math.pow(1 - p, 1.2) * 0.9;
       }
 
       if (p >= 1) {

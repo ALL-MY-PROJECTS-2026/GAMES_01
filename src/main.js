@@ -180,9 +180,12 @@ async function boot() {
     if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); openChat(); return; }
     if (e.code === 'KeyI') { renderInventory(); toggleInventory(); }
     if (e.code === 'KeyK') toggleSkills();
-    if (e.code === 'F1' || e.code === 'F2') {
+    // F1~F12로 술법 선택
+    const fk = /^F([1-9]|1[0-2])$/.exec(e.code);
+    if (fk) {
       e.preventDefault();
-      selectSpellByIndex(e.code === 'F1' ? 0 : 1);
+      selectSpellByIndex(Number(fk[1]) - 1);
+      return;
     }
     if (e.code === 'KeyV') { autoHunt = !autoHunt; setAutoHunt(autoHunt); }
     if (e.code === 'Digit1') useJelly();
@@ -375,16 +378,46 @@ async function boot() {
       const sp = SPELLS[e.k];
       if (!sp) return;
       if (gh) gh.playOnce('cast', 1.6);
-      if (e.k === 'frostNova') {
-        vfx.frostNova({ x: e.x, z: e.z }, { radius: sp.radius, color: sp.color });
-      } else if (e.k === 'flameField') {
-        vfx.circle({ x: e.gx, z: e.gz }, { radius: sp.radius, color: sp.color, dur: 0.9 });
-        vfx.fireField({ x: e.gx, z: e.gz }, { radius: sp.radius, color: sp.color, dur: sp.duration });
-      } else if (e.k === 'wardBarrier') {
+      // 남의 술법도 내 것과 같은 그림으로 보여야 무엇을 쓴 건지 알 수 있다
+      const at = { x: e.x, z: e.z };
+      const to = { x: e.gx, z: e.gz };
+      if (sp.fx === 'frost') {
+        vfx.frostNova(at, { radius: sp.radius, color: sp.color });
+        vfx.frostSpikes(at, sp.radius, sp.color);
+      } else if (sp.fx === 'whirl') {
+        vfx.whirl(at, { radius: sp.radius, color: sp.color });
+      } else if (sp.fx === 'quake') {
+        vfx.quake(at, { radius: sp.radius, color: sp.color });
+      } else if (sp.fx === 'blaze') {
+        vfx.circle(to, { radius: sp.radius, color: sp.color, dur: 0.9 });
+        vfx.fireField(to, { radius: sp.radius, color: sp.color, dur: sp.duration });
+      } else if (sp.fx === 'ward') {
         if (gh) vfx.aura(gh.group, { radius: 1.5, color: sp.color, dur: sp.duration });
-        vfx.circle({ x: e.x, z: e.z }, { radius: 2.4, color: sp.color, dur: 1.1 });
-      } else if (e.k === 'chainBolt') {
-        vfx.burst({ x: e.x, z: e.z }, { size: 1.6, color: sp.color, dur: 0.28 });
+        vfx.circle(at, { radius: 2.4, color: sp.color, dur: 1.1 });
+      } else if (sp.fx === 'cry') {
+        if (gh) vfx.aura(gh.group, { radius: 1.5, color: sp.color, dur: sp.duration });
+        vfx.cry(at, { color: sp.color });
+      } else if (sp.fx === 'thunder') {
+        vfx.burst(at, { size: 1.6, color: sp.color, dur: 0.28 });
+        vfx.circle(at, { radius: 2, color: sp.color, dur: 0.5 });
+      } else if (sp.fx === 'gust') {
+        vfx.gust(at, e.r || 0, Math.abs(sp.distance), { color: sp.color });
+      } else if (sp.fx === 'wind') {
+        vfx.windTrail(at, e.r || 0, { color: sp.color });
+      } else if (sp.fx === 'meteor' || sp.fx === 'arrows') {
+        // 낙하 연출은 호스트/시전자 쪽 타이머를 따라가지 않으므로 여기서 한꺼번에 뿌린다
+        vfx.circle(to, { radius: sp.radius, color: sp.color, dur: 1.0 });
+        for (let i = 0; i < sp.strikes; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random()) * sp.radius * 0.8;
+          const hx = e.gx + Math.cos(a) * rr;
+          const hz = e.gz + Math.sin(a) * rr;
+          if (sp.fx === 'arrows') {
+            vfx.arrowFall({ x: hx, z: hz }, { color: sp.color, count: 4, radius: 1.6 });
+          } else {
+            vfx.meteor({ x: hx, z: hz }, { color: sp.color, size: 2.2 });
+          }
+        }
       }
     }
   };
@@ -520,6 +553,7 @@ async function boot() {
     );
     projectiles.updateHostile(d, player);
     player.updateGroundAreas(d, monsters.list, handleHit);
+    player.updateRain(d, monsters.list, handleHit);
     vfx.update(d);
     for (const key of SPELL_ORDER) {
       const sp = SPELLS[key];
@@ -558,6 +592,34 @@ async function boot() {
       camRig.cam.position.z += (Math.random() - 0.5) * k;
       if (juice.shakeT <= 0) juice.shakeMag = 0;
     }
+    // 조준 보조 — 원거리 무기·지점 술법의 사거리와 착탄 범위를 바닥에 표시
+    {
+      const sp = getSelectedSpell();
+      const wp = WEAPONS[player.weapon];
+      const ppos = player.group.position;
+      // 사거리 원: 석궁을 들었거나, 지점을 찍는 술법을 고른 경우
+      const showRange = wp.type === 'ranged' || (sp && sp.range);
+      if (showRange) {
+        const rad = sp && sp.range ? sp.range : wp.range;
+        vfx.aimRing('range', ppos, rad, sp && sp.range ? sp.color : '#ffd666');
+      } else {
+        vfx.hideAim('range');
+      }
+      // 착탄 범위: 지점 술법을 고른 채 마우스를 올린 곳
+      if (sp && sp.radius && (sp.kind === 'ground' || sp.kind === 'rain')) {
+        const pk = scene.pick(scene.pointerX, scene.pointerY, undefined, false, camRig.cam);
+        if (pk && pk.hit && pk.pickedPoint) {
+          const dx = pk.pickedPoint.x - ppos.x;
+          const dz = pk.pickedPoint.z - ppos.z;
+          const dd = Math.hypot(dx, dz);
+          const k = dd > sp.range ? sp.range / dd : 1;
+          vfx.aimRing('area', { x: ppos.x + dx * k, z: ppos.z + dz * k }, sp.radius, sp.color);
+        }
+      } else {
+        vfx.hideAim('area');
+      }
+    }
+
     updateChat(delta);
     minimap.update();
   }

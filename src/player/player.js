@@ -108,6 +108,11 @@ export class Player {
     this.nearbyMonsters = null;   // main 루프가 매 프레임 넣어준다
     this.wardT = 0;
     this.wardMul = 1;
+    this.dmgBuffT = 0;
+    this.dmgBuffMul = 1;
+    this.hasteT = 0;
+    this.hasteMul = 1;
+    this.rainQueue = [];
     this.maxStamina = STAMINA_BASE;
     this.stamina = STAMINA_BASE;
     this.staminaIdle = 0;
@@ -428,6 +433,172 @@ export class Player {
     const damage = Math.round((s.baseDamage + stats.level * s.perLevel)
       * this.charCfg.magicMul * magicDamageMul());
 
+    // 유성우·시우 — 지정 지점에 여러 번 떨어진다. 이동추종 없음 + 고코스트로 제약
+    if (s.kind === 'rain') {
+      const dx0 = point.x - this.group.position.x;
+      const dz0 = point.z - this.group.position.z;
+      const dist0 = Math.hypot(dx0, dz0);
+      const k0 = dist0 > s.range ? s.range / dist0 : 1;
+      const gx = this.group.position.x + dx0 * k0;
+      const gz = this.group.position.z + dz0 * k0;
+      this.group.rotation.y = Math.atan2(dx0, dz0);
+      this.play('cast', true, 1.6);
+      this.lockTimer = 0.45;
+      sfx.shoot();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, gx, gz,
+        x: this.group.position.x, z: this.group.position.z, r: this.group.rotation.y });
+      if (this.vfx) this.vfx.circle({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: 1.0 });
+      this.rainQueue = this.rainQueue || [];
+      this.rainQueue.push({
+        x: gx, z: gz, radius: s.radius, damage, knock: s.knock, knockUp: s.knockUp || 0,
+        color: s.color, fx: s.fx, left: s.strikes, t: 0, interval: s.interval
+      });
+      return true;
+    }
+
+    // 돌풍격·풍신보 — 앞뒤로 파고들며 길목을 친다
+    if (s.kind === 'dash') {
+      const back = s.distance < 0;
+      if (!back) {
+        this.group.rotation.y = Math.atan2(
+          point.x - this.group.position.x, point.z - this.group.position.z
+        );
+      }
+      const face = this._face.copyFromFloats(
+        Math.sin(this.group.rotation.y), 0, Math.cos(this.group.rotation.y)
+      );
+      const dir = back ? -1 : 1;
+      this._dodgeDir.copyFromFloats(face.x * dir, 0, face.z * dir);
+      this.dodgeT = 0.3;
+      this.iframe = 0.2;
+      this.play(back ? 'dodgeBack' : 'dodge', true, 1.4);
+      sfx.jump();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
+        z: this.group.position.z, r: this.group.rotation.y });
+      if (this.vfx) {
+        if (s.fx === 'wind') {
+          this.vfx.windTrail(this.group.position, this.group.rotation.y, { color: s.color });
+        } else {
+          this.vfx.gust(this.group.position, this.group.rotation.y, Math.abs(s.distance),
+            { color: s.color });
+        }
+      }
+      if (s.hasteDuration) { this.hasteT = s.hasteDuration; this.hasteMul = s.hasteMul; }
+      if (damage > 0) {
+        const len = Math.abs(s.distance);
+        for (const m of (this.nearbyMonsters || [])) {
+          if (m.dead) continue;
+          const rx = m.group.position.x - this.group.position.x;
+          const rz = m.group.position.z - this.group.position.z;
+          const along = rx * face.x * dir + rz * face.z * dir;
+          if (along < 0 || along > len) continue;
+          if (Math.abs(rx * face.z * dir - rz * face.x * dir) > s.width) continue;
+          const d = Math.max(0.001, Math.hypot(rx, rz));
+          const hdir = { x: rx / d, z: rz / d };
+          const relayed = this.reportDamage && this.reportDamage(m, damage, hdir, s.knock, s.knockUp);
+          const killed = relayed ? false
+            : (this.applyDamage ? this.applyDamage(m, damage, hdir, s.knock, s.knockUp)
+                                : m.takeDamage(damage, hdir, s.knock, s.knockUp));
+          this.popDamage(m, damage, true);
+          if (this.onKill && killed) this.onKill(m);
+          if (this.vfx) this.vfx.burst(m.group.position, { size: 1.6, color: s.color, dur: 0.26 });
+        }
+      }
+      return true;
+    }
+
+    // 관통시·절족시 — 일직선으로 여러 적을 꿰뚫는다
+    if (s.kind === 'pierce') {
+      this.group.rotation.y = Math.atan2(
+        point.x - this.group.position.x, point.z - this.group.position.z
+      );
+      const face = this._face.copyFromFloats(
+        Math.sin(this.group.rotation.y), 0, Math.cos(this.group.rotation.y)
+      );
+      this.play('shoot', true, 1.5);
+      this.lockTimer = 0.3;
+      sfx.shoot();
+      const origin = this.group.position.clone();
+      origin.y += 1.15;
+      if (this.onAction) this.onAction({ t: 'shot', ox: origin.x, oy: origin.y, oz: origin.z,
+        dx: face.x, dz: face.z, k: 'arrow',
+        x: this.group.position.x, z: this.group.position.z, r: this.group.rotation.y });
+      if (this.projectiles) {
+        this.projectiles.spawnVisual(origin, { x: face.x, z: face.z }, s.color, 'arrow');
+      }
+      if (this.vfx) {
+        if (s.fx === 'snare') {
+          this.vfx.burst(origin, { size: 1.2, color: s.color, dur: 0.2 });
+        } else {
+          this.vfx.lance(origin, { x: face.x, z: face.z }, s.range, { color: s.color });
+        }
+      }
+      const hits = [];
+      for (const m of (this.nearbyMonsters || [])) {
+        if (m.dead) continue;
+        const rx = m.group.position.x - this.group.position.x;
+        const rz = m.group.position.z - this.group.position.z;
+        const along = rx * face.x + rz * face.z;
+        if (along < 0 || along > s.range) continue;
+        if (Math.abs(rx * face.z - rz * face.x) > 1.3) continue;
+        hits.push({ m, along });
+      }
+      hits.sort((a, b) => a.along - b.along);
+      let dmg = damage;
+      for (const h of hits.slice(0, s.maxHits)) {
+        const rx = h.m.group.position.x - this.group.position.x;
+        const rz = h.m.group.position.z - this.group.position.z;
+        const d = Math.max(0.001, Math.hypot(rx, rz));
+        const hdir = { x: rx / d, z: rz / d };
+        const dd = Math.round(dmg);
+        const relayed = this.reportDamage && this.reportDamage(h.m, dd, hdir, s.knock, 0);
+        const killed = relayed ? false
+          : (this.applyDamage ? this.applyDamage(h.m, dd, hdir, s.knock, 0)
+                              : h.m.takeDamage(dd, hdir, s.knock, 0));
+        this.popDamage(h.m, dd, true);
+        if (s.slowDuration) { h.m.slowT = s.slowDuration; h.m.slowMul = s.slowMul; }
+        if (this.onKill && killed) this.onKill(h.m);
+        if (this.vfx) {
+          this.vfx.burst(h.m.group.position, { size: 1.5, color: s.color, dur: 0.26 });
+          if (s.fx === 'snare') this.vfx.snare(h.m.group.position, { radius: 1.9, color: s.color });
+        }
+        dmg *= s.falloff;
+      }
+      return true;
+    }
+
+    // 연사 — 부채꼴로 여러 발
+    if (s.kind === 'spread') {
+      this.group.rotation.y = Math.atan2(
+        point.x - this.group.position.x, point.z - this.group.position.z
+      );
+      this.play('shoot', true, 1.5);
+      this.lockTimer = 0.32;
+      sfx.shoot();
+      const half = (s.spreadDeg * Math.PI / 180) / 2;
+      for (let i = 0; i < s.count; i++) {
+        const a = this.group.rotation.y - half
+          + (s.count === 1 ? 0 : (i / (s.count - 1)) * half * 2);
+        const dx = Math.sin(a);
+        const dz = Math.cos(a);
+        const origin = this.group.position.clone();
+        origin.y += 1.15;
+        origin.x += dx * 0.6;
+        origin.z += dz * 0.6;
+        if (this.projectiles) {
+          this.projectiles.spawn(origin, new Vector3(dx, 0, dz), damage, s.knock, s.color, 'arrow');
+        }
+        if (this.onAction) this.onAction({ t: 'shot', ox: origin.x, oy: origin.y, oz: origin.z,
+          dx, dz, k: 'arrow', x: this.group.position.x, z: this.group.position.z,
+          r: this.group.rotation.y });
+      }
+      if (this.vfx) {
+        this.vfx.fan(this.group.position, this.group.rotation.y,
+          { color: s.color, radius: 4.4 });
+      }
+      return true;
+    }
+
     // 결계 — 자기 버프. 오라를 두르고 지속 동안 받는 피해를 줄인다
     if (s.kind === 'buff') {
       this.play('cast', true, 1.5);
@@ -435,11 +606,15 @@ export class Player {
       sfx.levelup();
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
         z: this.group.position.z, r: this.group.rotation.y });
-      this.wardT = s.duration;
-      this.wardMul = s.damageTakenMul;
+      if (s.damageTakenMul) { this.wardT = s.duration; this.wardMul = s.damageTakenMul; }
+      if (s.damageBonus) { this.dmgBuffT = s.duration; this.dmgBuffMul = 1 + s.damageBonus; }
       if (this.vfx) {
         this.wardAura = this.vfx.aura(this.group, { radius: 1.5, color: s.color, dur: s.duration });
-        this.vfx.circle(this.group.position, { radius: 2.4, color: s.color, dur: 1.1 });
+        if (s.fx === 'cry') {
+          this.vfx.cry(this.group.position, { color: s.color });
+        } else {
+          this.vfx.circle(this.group.position, { radius: 2.4, color: s.color, dur: 1.1 });
+        }
       }
       return true;
     }
@@ -453,7 +628,16 @@ export class Player {
       const origin = this.group.position;
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: origin.x, z: origin.z,
         r: this.group.rotation.y });
-      if (this.vfx) this.vfx.frostNova(origin, { radius: s.radius, color: s.color });
+      if (this.vfx) {
+        if (s.fx === 'whirl') {
+          this.vfx.whirl(origin, { radius: s.radius, color: s.color });
+        } else if (s.fx === 'quake') {
+          this.vfx.quake(origin, { radius: s.radius, color: s.color });
+        } else {
+          this.vfx.frostNova(origin, { radius: s.radius, color: s.color });
+          this.vfx.frostSpikes(origin, s.radius, s.color);
+        }
+      }
       for (const m of (this.pendingList || this.nearbyMonsters || [])) {
         if (m.dead) continue;
         const dx = m.group.position.x - origin.x;
@@ -498,6 +682,7 @@ export class Player {
         hitSet.add(best);
         if (this.vfx) {
           this.vfx.beam(from, best.group.position, { color: s.color, dur: 0.22 });
+          this.vfx.lightning(best.group.position, { color: s.color });
           this.vfx.burst(best.group.position, { size: 1.5, color: s.color, dur: 0.26 });
         }
         const dx = best.group.position.x - from.x;
@@ -575,9 +760,54 @@ export class Player {
     if (this.onAction) this.onAction({ t: 'bolt', ox: origin.x, oy: origin.y, oz: origin.z,
       dx: face.x, dz: face.z, c: s.color, x: this.group.position.x, z: this.group.position.z,
       r: this.group.rotation.y });
-    if (this.vfx) this.vfx.burst(origin, { size: 1.1, color: s.color, dur: 0.22 });
+    if (this.vfx) {
+      this.vfx.burst(origin, { size: 1.1, color: s.color, dur: 0.22 });
+      this.vfx.circle(this.group.position, { radius: 1.5, color: s.color, dur: 0.5 });
+      this.vfx.sparks({ x: origin.x, y: 0.3, z: origin.z },
+        { count: 8, color: s.color, power: 4, size: 0.2, spread: 'up' });
+    }
     this.projectiles.spawn(origin, face.clone(), damage, s.knock, s.color);
     return true;
+  }
+
+  // 유성우·시우 — 예고된 지점에 순차로 떨어진다
+  updateRain(delta, monsters, onHit) {
+    if (!this.rainQueue || !this.rainQueue.length) return;
+    for (let i = this.rainQueue.length - 1; i >= 0; i--) {
+      const r = this.rainQueue[i];
+      r.t -= delta;
+      if (r.t > 0) continue;
+      r.t = r.interval;
+      r.left -= 1;
+      // 지정 범위 안에서 조금씩 흩어져 떨어진다
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * r.radius * 0.8;
+      const hx = r.x + Math.cos(a) * rr;
+      const hz = r.z + Math.sin(a) * rr;
+      if (this.vfx) {
+        // 유성우는 불덩이가 떨어지고, 시우는 화살이 촘촘히 꽂힌다
+        if (r.fx === 'arrows') {
+          this.vfx.arrowFall({ x: hx, z: hz }, { color: r.color, count: 6, radius: 1.9 });
+        } else {
+          this.vfx.meteor({ x: hx, z: hz }, { color: r.color, size: 2.4 });
+        }
+      }
+      for (const m of monsters) {
+        if (m.dead) continue;
+        const dx = m.group.position.x - hx;
+        const dz = m.group.position.z - hz;
+        if (dx * dx + dz * dz > 2.1 * 2.1) continue;
+        const d = Math.max(0.001, Math.hypot(dx, dz));
+        const dir = { x: dx / d, z: dz / d };
+        const relayed = this.reportDamage && this.reportDamage(m, r.damage, dir, r.knock, r.knockUp);
+        const killed = relayed ? false
+          : (this.applyDamage ? this.applyDamage(m, r.damage, dir, r.knock, r.knockUp)
+                              : m.takeDamage(r.damage, dir, r.knock, r.knockUp));
+        this.popDamage(m, r.damage, true);
+        if (onHit && !relayed) onHit(m, killed);
+      }
+      if (r.left <= 0) this.rainQueue.splice(i, 1);
+    }
   }
 
   // 장판 술법 유지 — 주기마다 범위 안의 적을 태운다
@@ -786,7 +1016,8 @@ export class Player {
         if (Vector3.Dot(to, fwd) < w.arcDot) continue;
       }
       const wKey = this.pendingWeaponKey || this.weapon;
-      const dealt = Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey));
+      const buff = this.dmgBuffT > 0 ? this.dmgBuffMul : 1;
+      const dealt = Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey) * buff);
       // 멀티: 판정은 호스트가 한다. 비호스트는 보고만 하고 숫자는 띄운다.
       const relayed = this.reportDamage && this.reportDamage(m, dealt, fwd, w.knock, w.knockUp || 0);
       const killed = relayed ? false
@@ -891,7 +1122,8 @@ export class Player {
       dir.normalize();
       const run = this.blocking ? BLOCK_MOVE_MUL : (running ? 2.1 : 1);
       move.copyFrom(dir).scaleInPlace(
-        this.walkSpeed * moveSpeedMul(stats.skills) * moveSpeedAttrMul() * run * delta
+        this.walkSpeed * moveSpeedMul(stats.skills) * moveSpeedAttrMul()
+          * (this.hasteT > 0 ? this.hasteMul : 1) * run * delta
       );
       if (this.lockTimer > 0) move.scaleInPlace(0.45);
 
@@ -961,6 +1193,8 @@ export class Player {
       this.wardT -= delta;
       if (this.wardT <= 0) this.wardAura = null;   // VFX가 스스로 회수한다
     }
+    if (this.dmgBuffT > 0) this.dmgBuffT -= delta;
+    if (this.hasteT > 0) this.hasteT -= delta;
     if (this.mp < this.maxMp) {
       this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);
       setMP(Math.round(this.mp), this.maxMp);
