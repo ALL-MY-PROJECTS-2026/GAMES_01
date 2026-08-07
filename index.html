@@ -106,19 +106,6 @@
     #levelup.show { animation: lvup 2.2s ease-out forwards; }
     @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
-    #charselect { display: none; position: fixed; inset: 0; z-index: 20; background: rgba(8, 10, 18, 0.94); flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #e8dcc4; }
-    .cs-title { font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
-    .cs-sub { font-size: 14px; color: #b8a888; margin-bottom: 18px; }
-    #charselect-cards { display: flex; gap: 16px; }
-    .char-card { width: 180px; padding: 18px 14px 14px; text-align: center; background: rgba(16, 18, 30, 0.9); border: 2px solid #6a5c3a; border-radius: 12px; cursor: pointer; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; position: relative; }
-    .char-card:hover { border-color: #e8c25f; transform: translateY(-4px); box-shadow: 0 6px 18px rgba(232, 194, 95, 0.25); }
-    .char-card.last-pick { border-color: #c9a86a; }
-    .char-card .portrait { width: 58px; height: 58px; font-size: 24px; margin: 0 auto 10px; }
-    .cc-name { font-size: 18px; font-weight: 700; color: #e8c25f; }
-    .cc-role { font-size: 12px; color: #c9a86a; margin: 3px 0 8px; }
-    .cc-desc { font-size: 11.5px; line-height: 1.5; color: #b8a888; min-height: 50px; }
-    .cc-last { position: absolute; top: 8px; right: 8px; font-size: 10px; border: 1px solid #c9a86a; border-radius: 5px; padding: 1px 6px; color: #c9a86a; }
-
     #inventory { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; padding: 14px 16px; pointer-events: auto; }
     .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; color: #e8c25f; }
     .inv-title span { color: #c9a86a; }
@@ -131,11 +118,6 @@
 </head>
 <body>
   <div id="app"></div>
-  <div id="charselect">
-    <div class="cs-title">귀곡의 초원</div>
-    <div class="cs-sub">함께할 퇴마사를 선택하세요 — 나머지 둘은 동료로 함께합니다</div>
-    <div id="charselect-cards"></div>
-  </div>
   <div id="hud">
     <div id="hitflash"></div>
     <div id="dmg-layer"></div>

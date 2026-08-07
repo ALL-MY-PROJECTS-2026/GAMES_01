@@ -34,7 +34,7 @@ export function initHUD() {
   const weapons = [
     [2, '👊', '권법 — 5단 연계 콤보 (잽·잽·훅·어퍼·붕권)'],
     [3, '🗡️', '퇴마검 — 2단 연계 (찌르기 → 가로베기)'],
-    [4, '🧧', '부적 — 원거리 연사']
+    [4, '🏹', '석궁 — 화살 원거리 사격']
   ];
   for (const [i, icon, title] of weapons) {
     const s = document.getElementById(`slot-${i}`);

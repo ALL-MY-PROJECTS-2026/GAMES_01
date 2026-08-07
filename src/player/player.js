@@ -130,11 +130,16 @@ export class Player {
     this.model.scaling.setAll(scale);
     this.model.position.y = -min.y * scale;
 
-    // 모델에 내장된 무기 프롭(석궁·단검·투척물 등)은 전부 끈다 — 무기는 게임이 직접 붙인다
+    // 모델에 내장된 무기 프롭은 전부 끄고 이름으로 보관 — 무기 슬롯이 필요할 때만 켠다
+    this.builtinProps = {};
     for (const m of res.meshes) {
       const parent = m.parent && m.parent.name;
-      if (parent && /^handslot/i.test(parent)) m.setEnabled(false);
+      if (parent && /^handslot/i.test(parent)) {
+        m.setEnabled(false);
+        this.builtinProps[m.name] = m;
+      }
     }
+    this.propForWeapon = cfg.props || {};
 
     // 색조 기반 리컬러(이림의 붉은 무복) 또는 단순 틴트
     let recolored = null;
@@ -256,8 +261,19 @@ export class Player {
     this.weapon = key;
     this.comboStep = -1;
     this.comboTimer = 0;
-    if (this.weaponMeshes.sword) this.weaponMeshes.sword.setEnabled(key === 'sword');
-    if (this.weaponMeshes.gun) this.weaponMeshes.gun.setEnabled(key === 'gun');
+
+    // 모델 내장 프롭을 쓰는 슬롯이면 그것만 켜고, 아니면 게임이 만든 메시를 켠다
+    const props = this.propForWeapon || {};
+    for (const [slot, propName] of Object.entries(props)) {
+      const mesh = this.builtinProps && this.builtinProps[propName];
+      if (mesh) mesh.setEnabled(slot === key);
+    }
+    if (this.weaponMeshes.sword) {
+      this.weaponMeshes.sword.setEnabled(key === 'sword' && !props.sword);
+    }
+    if (this.weaponMeshes.gun) {
+      this.weaponMeshes.gun.setEnabled(key === 'gun' && !props.gun);
+    }
     return true;
   }
 
@@ -359,7 +375,7 @@ export class Player {
         this.projectiles.spawn(
           origin, face.clone(),
           Math.round(weaponDamage(w.damage, this.weapon) * this._dmgMul(this.weapon)),
-          w.knock
+          w.knock, '#ffd666', w.projectile || 'bolt'
         );
       }
       this.knockV.x -= face.x * 0.9;

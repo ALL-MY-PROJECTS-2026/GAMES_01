@@ -3,7 +3,7 @@ import { TransformNode, MeshBuilder, StandardMaterial, Color3 } from '@babylonjs
 export const WEAPONS = {
   punch: { name: '권법', icon: '👊', slot: 2, type: 'melee', damage: 12, range: 2.4, arcDot: 0.25, cd: 0.38, hitDelay: 0.16, knock: 9, lunge: 3.5, animScale: 2.0 },
   sword: { name: '퇴마검', icon: '🗡️', slot: 3, type: 'melee', damage: 22, range: 3.4, arcDot: 0.05, cd: 0.55, hitDelay: 0.2, knock: 13, lunge: 4.2, animScale: 1.6 },
-  gun: { name: '부적', icon: '🧧', slot: 4, type: 'ranged', damage: 8, range: 32, arcDot: 0, cd: 0.16, hitDelay: 0, knock: 3.5, lunge: 0, animScale: 3.0 }
+  gun: { name: '석궁', icon: '🏹', slot: 4, type: 'ranged', damage: 11, range: 32, arcDot: 0, cd: 0.42, hitDelay: 0, knock: 5, lunge: 0, animScale: 1.6, projectile: 'arrow' }
 };
 
 function mat(scene, name, hex) {

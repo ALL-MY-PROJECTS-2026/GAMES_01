@@ -9,7 +9,6 @@ import { ProjectileManager } from './world/projectiles.js';
 import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog.js';
 import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
-import { showCharSelect } from './ui/charselect.js';
 import { CHARACTERS } from './core/characters.js';
 import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
 import { Player } from './player/player.js';
@@ -29,13 +28,12 @@ async function boot() {
   const { engine, scene, canvas, shadow } = createScene(document.getElementById('app'));
   const input = new Input(canvas);
 
-  // 캐릭터 선택 화면을 띄운 채로 물리/월드 로딩을 병행
-  const choicePromise = showCharSelect();
   await initPhysics(scene);
   const { obstacles, ground } = buildWorld(scene, shadow);
   addStaticWorld(scene, ground, obstacles);
-  const charKey = await choicePromise;
 
+  // 단일 주인공으로 바로 시작 (선택 화면 없음)
+  const charKey = 'ilim';
   const player = new Player(scene, obstacles, shadow, charKey);
   const monsters = new MonsterManager(scene, obstacles, shadow);
   const npcs = new NPCManager(scene, obstacles, shadow);
@@ -118,8 +116,10 @@ async function boot() {
 
   initHUD();
   setPlayerIdentity(CHARACTERS[charKey]);
-  document.getElementById('comp1-row').style.display = 'none';
-  document.getElementById('comp2-row').style.display = 'none';
+  for (const id of ['comp1-row', 'comp2-row']) {
+    const row = document.getElementById(id);
+    if (row) row.remove();
+  }
   initDialog();
   initShop();
   initSkills();

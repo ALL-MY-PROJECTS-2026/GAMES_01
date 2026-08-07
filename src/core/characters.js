@@ -9,7 +9,7 @@ const KAYKIT_CLIPS = {
   punch5: 'Unarmed_Melee_Attack_Kick',
   sword1: '1H_Melee_Attack_Stab',              // 찌르기
   sword2: '1H_Melee_Attack_Slice_Horizontal',  // 가로베기
-  cast: 'Spellcast_Shoot', shoot: 'Throw',
+  cast: 'Spellcast_Shoot', shoot: '1H_Ranged_Shoot',
   hit: 'Hit_A', death: 'Death_A'
 };
 
@@ -31,6 +31,8 @@ export const CHARACTERS = {
     // 붉은 무복의 검객 — 기본 텍스처의 초록 계열을 붉은색으로, 청록은 남색으로 갈아입힌다
     model: {
       file: 'Rogue.glb', clips: KAYKIT_CLIPS, height: 1.85, weaponBone: 'handslot.r',
+      // 4번 슬롯은 모델에 내장된 석궁 메시를 그대로 쓴다
+      props: { gun: '1H_Crossbow' },
       texture: 'models/rogue_texture.png',
       recolor: [
         { from: [75, 168], to: 2, satMul: 1.25 },    // 초록 옷 → 붉은 무복

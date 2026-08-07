@@ -19,12 +19,12 @@ export const SKILL_TREES = {
     ]
   },
   gun: {
-    name: '부적',
-    icon: '🧧',
+    name: '석궁',
+    icon: '🏹',
     skills: [
-      { key: 'gun_mastery', name: '부적 숙련', icon: '📜', max: 3, info: '부적 피해 +15%씩', mods: { dmgMul: 0.15 } },
-      { key: 'chant', name: '연속 영창', icon: '🔥', max: 3, info: '부적 쿨다운 -8%씩', mods: { cdMul: -0.08 } },
-      { key: 'spirit_flame', name: '귀화(鬼火)', icon: '👻', max: 3, info: '부적 넉백 +30%씩', mods: { knockMul: 0.3 } }
+      { key: 'gun_mastery', name: '사격 숙련', icon: '🎯', max: 3, info: '석궁 피해 +15%씩', mods: { dmgMul: 0.15 } },
+      { key: 'chant', name: '속사 장전', icon: '⚙️', max: 3, info: '석궁 쿨다운 -8%씩', mods: { cdMul: -0.08 } },
+      { key: 'spirit_flame', name: '귀살시(鬼殺矢)', icon: '👻', max: 3, info: '석궁 넉백 +30%씩', mods: { knockMul: 0.3 } }
     ]
   }
 };
