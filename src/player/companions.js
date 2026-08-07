@@ -3,8 +3,10 @@ import {
   MeshBuilder,
   StandardMaterial,
   Color3,
-  Vector3
+  Vector3,
+  SceneLoader
 } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 import { resolveCollision, WORLD_HALF } from '../world/ground.js';
 import { makeNameLabel } from '../world/npcs.js';
 import { setPartyHP } from '../ui/hud.js';
@@ -12,6 +14,7 @@ import { setPartyHP } from '../ui/hud.js';
 const FOLLOW_SPEED = 8.5;
 const LEASH = 16;
 const REVIVE_TIME = 15;
+const LOOPING = new Set(['Idle', 'Walking', 'Running']);
 
 function lambert(scene, name, hex) {
   const mat = new StandardMaterial(name, scene);
@@ -37,6 +40,13 @@ class Companion {
     head.material = lambert(scene, 'compHead' + cfg.name, '#ffe3c8');
     head.position.y = 1.75;
     head.parent = this.group;
+    this.headMesh = head;
+
+    this.groups = null;
+    this.currentAction = null;
+    this.currentName = '';
+    this.actionT = 0;
+    this._loadModel(shadow);
 
     if (cfg.role === 'mage') {
       const staff = MeshBuilder.CreateCylinder('staff', { diameter: 0.07, height: 1.6, tessellation: 6 }, scene);
@@ -73,6 +83,61 @@ class Companion {
 
     this.group.position.set(cfg.offset.x, 0, cfg.offset.z);
     setPartyHP(cfg.slot, this.hp, this.maxHp);
+  }
+
+  async _loadModel(shadow) {
+    const res = await SceneLoader.ImportMeshAsync('', 'models/', 'character.glb', this.scene);
+    const rootMesh = res.meshes[0];
+
+    this.model = new TransformNode('compModel' + this.cfg.name, this.scene);
+    this.model.parent = this.group;
+    rootMesh.parent = this.model;
+
+    const { min, max } = rootMesh.getHierarchyBoundingVectors(true);
+    const h = max.y - min.y;
+    const scale = 1.7 / h;
+    this.model.scaling.setAll(scale);
+    this.model.position.y = -min.y * scale;
+
+    // 캐릭터별 팔레트 스왑: 같은 모델을 색으로 구분
+    const tint = Color3.FromHexString(this.cfg.tint || this.cfg.color);
+    const done = new Set();
+    for (const m of res.meshes) {
+      if (shadow && m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
+      const mat = m.material;
+      if (!mat || done.has(mat)) continue;
+      done.add(mat);
+      if (mat.albedoColor) mat.albedoColor = mat.albedoColor.multiply(tint);
+      else if (mat.diffuseColor) mat.diffuseColor = mat.diffuseColor.multiply(tint);
+    }
+
+    this.groups = {};
+    for (const g of res.animationGroups) {
+      g.stop();
+      this.groups[g.name] = g;
+      for (const ta of g.targetedAnimations) {
+        ta.animation.enableBlending = true;
+        ta.animation.blendingSpeed = 0.1;
+      }
+    }
+
+    this.bodyMesh.dispose();
+    this.bodyMesh = null;
+    this.headMesh.dispose();
+    this.headMesh = null;
+    this.play('Idle');
+  }
+
+  play(name, force = false, speed = 1) {
+    if (!this.groups) return;
+    const next = this.groups[name];
+    if (!next) return;
+    if (this.currentName === name && !force) return;
+    if (this.currentAction && this.currentAction !== next) this.currentAction.stop();
+    if (this.currentName === name && force) next.stop();
+    next.start(LOOPING.has(name), speed);
+    this.currentAction = next;
+    this.currentName = name;
   }
 
   takeDamage(amount) {
@@ -149,14 +214,19 @@ class Companion {
         ).normalize();
         const origin = new Vector3(pos.x + dirN.x * 0.5, 1.3, pos.z + dirN.z * 0.5);
         projectiles.spawn(origin, dirN.clone(), this.cfg.damage, 2.5, this.cfg.projColor);
+        // 시전 모션: 술법사는 손짓, 사수는 지르기
+        this.play(this.cfg.role === 'mage' ? 'Wave' : 'Punch', true, 1.6);
+        this.actionT = 0.5;
       }
     }
 
     const mdx = destX - pos.x;
     const mdz = destZ - pos.z;
     const mDist = Math.hypot(mdx, mdz);
+    let moveSpeed = 0;
     if (mDist > 0.4) {
       const sp = Math.min(FOLLOW_SPEED, mDist * 4);
+      moveSpeed = sp;
       pos.x += (mdx / mDist) * sp * delta;
       pos.z += (mdz / mDist) * sp * delta;
       if (!target) this.group.rotation.y = Math.atan2(mdx, mdz);
@@ -171,8 +241,17 @@ class Companion {
     pos.z = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.z));
     resolveCollision(pos, 0.45, obstacles);
 
-    this.bob += delta * 5;
-    this.bodyMesh.position.y = 0.8 + Math.abs(Math.sin(this.bob)) * 0.05;
+    if (this.groups) {
+      this.actionT = Math.max(0, this.actionT - delta);
+      if (this.actionT <= 0) {
+        if (moveSpeed > 5.5) this.play('Running', false, 1.25);
+        else if (moveSpeed > 0) this.play('Walking', false, 1.2);
+        else this.play('Idle');
+      }
+    } else if (this.bodyMesh) {
+      this.bob += delta * 5;
+      this.bodyMesh.position.y = 0.8 + Math.abs(Math.sin(this.bob)) * 0.05;
+    }
   }
 }
 
@@ -180,12 +259,12 @@ export class CompanionManager {
   constructor(scene, shadow) {
     this.list = [
       new Companion(scene, shadow, {
-        name: '쿠사', role: 'mage', slot: 1, color: '#34406e',
+        name: '쿠사', role: 'mage', slot: 1, color: '#34406e', tint: '#8fa8ff',
         projColor: '#7fb0ff', damage: 10, interval: 1.6, range: 15, hp: 80,
         offset: { x: -1.6, z: -1.6 }
       }),
       new Companion(scene, shadow, {
-        name: '레닝', role: 'archer', slot: 2, color: '#2e5a38',
+        name: '레닝', role: 'archer', slot: 2, color: '#2e5a38', tint: '#9fdca8',
         projColor: '#ffd666', damage: 7, interval: 1.0, range: 16, hp: 80,
         offset: { x: 1.6, z: -1.8 }
       })

@@ -4,8 +4,10 @@ import {
   StandardMaterial,
   Color3,
   Vector3,
-  Mesh
+  Mesh,
+  SceneLoader
 } from '@babylonjs/core';
+import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from './ground.js';
 
 const RED = Color3.FromHexString('#e24b4a');
@@ -24,6 +26,13 @@ export const MONSTER_TYPES = {
     hp: 60, damage: 10, speed: 2.2, wanderSpeed: 0.7, aggro: 9, attackRange: 2.0,
     xp: 25, gold: [8, 14], jelly: 2,
     barY: 2.1, ring: [45, 85]
+  },
+  fox: {
+    name: '요호',
+    hp: 45, damage: 8, speed: 5.4, wanderSpeed: 1.8, aggro: 13, attackRange: 1.8,
+    xp: 20, gold: [6, 12], jelly: 1,
+    barY: 1.7, ring: [30, 70],
+    model: { file: 'Fox.glb', height: 1.1, yaw: 0, clips: { idle: 'Survey', walk: 'Walk', run: 'Run' } }
   }
 };
 
@@ -50,7 +59,14 @@ class Monster {
 
     const eyeMat = flatMat(scene, 'eye', '#222222', true);
 
-    if (typeKey === 'slime') {
+    if (this.cfg.model) {
+      // GLB 스킨드 메시 몬스터 — 히트 플래시 대신 스쿼시만 사용
+      this.flashMat = new StandardMaterial('dummyFlash' + typeKey, scene);
+      this.baseColor = this.flashMat.diffuseColor.clone();
+      this.anims = null;
+      this.animName = '';
+      this._loadModel(shadow);
+    } else if (typeKey === 'slime') {
       this.flashMat = new StandardMaterial('ghostMat', scene);
       this.flashMat.diffuseColor = Color3.FromHexString('#dfe9ff');
       this.flashMat.emissiveColor = Color3.FromHexString('#2a3a6a');
@@ -148,6 +164,48 @@ class Monster {
     this.placeRandom();
   }
 
+  async _loadModel(shadow) {
+    const m = this.cfg.model;
+    const res = await SceneLoader.ImportMeshAsync('', 'models/', m.file, this.scene);
+    const rootMesh = res.meshes[0];
+
+    const holder = new TransformNode('monModel', this.scene);
+    holder.parent = this.body;
+    rootMesh.parent = holder;
+
+    const { min, max } = rootMesh.getHierarchyBoundingVectors(true);
+    const h = max.y - min.y;
+    const scale = m.height / h;
+    holder.scaling.setAll(scale);
+    holder.position.y = -min.y * scale;
+    holder.rotation.y = m.yaw || 0;
+
+    for (const mesh of res.meshes) {
+      if (shadow && mesh.getTotalVertices && mesh.getTotalVertices() > 0) shadow.addShadowCaster(mesh);
+      mesh.metadata = { monster: this };
+    }
+
+    this.anims = {};
+    for (const g of res.animationGroups) {
+      g.stop();
+      this.anims[g.name] = g;
+      for (const ta of g.targetedAnimations) {
+        ta.animation.enableBlending = true;
+        ta.animation.blendingSpeed = 0.12;
+      }
+    }
+    this.playAnim(m.clips.idle);
+  }
+
+  playAnim(name, speed = 1) {
+    if (!this.anims || this.animName === name) return;
+    const next = this.anims[name];
+    if (!next) return;
+    if (this.animName && this.anims[this.animName]) this.anims[this.animName].stop();
+    next.start(true, speed);
+    this.animName = name;
+  }
+
   placeRandom() {
     const [rMin, rMax] = this.cfg.ring;
     const angle = Math.random() * Math.PI * 2;
@@ -243,6 +301,9 @@ class Monster {
       if (dist > this.cfg.attackRange * 0.8) {
         pos.x += nx * this.cfg.speed * delta;
         pos.z += nz * this.cfg.speed * delta;
+        this._moveState = 'run';
+      } else {
+        this._moveState = 'idle';
       }
       this.attackT -= delta;
       if (dist < this.cfg.attackRange && this.attackT <= 0) {
@@ -262,6 +323,9 @@ class Monster {
         pos.x += this.wanderDir.x * this.cfg.wanderSpeed * delta;
         pos.z += this.wanderDir.z * this.cfg.wanderSpeed * delta;
         this._rotateToward(Math.atan2(this.wanderDir.x, this.wanderDir.z), 6, delta);
+        this._moveState = 'walk';
+      } else {
+        this._moveState = 'idle';
       }
     }
 
@@ -275,7 +339,13 @@ class Monster {
       this.attackAnim -= delta;
       hop = Math.sin(Math.max(0, this.attackAnim) / 0.3 * Math.PI) * 0.35;
     }
-    if (this.typeKey === 'slime') {
+    if (this.cfg.model) {
+      const clips = this.cfg.model.clips;
+      if (this._moveState === 'run') this.playAnim(clips.run, 1.3);
+      else if (this._moveState === 'walk') this.playAnim(clips.walk, 1.1);
+      else this.playAnim(clips.idle);
+      this.body.position.y = hop;
+    } else if (this.typeKey === 'slime') {
       this.body.position.y = 0.25 + Math.sin(this.bounce) * 0.18 + hop;
     } else {
       this.body.position.y = Math.abs(Math.sin(this.bounce)) * 0.12 + hop;
@@ -286,7 +356,7 @@ class Monster {
 }
 
 export class MonsterManager {
-  constructor(scene, obstacles, shadow, counts = { slime: 8, mushroom: 5 }) {
+  constructor(scene, obstacles, shadow, counts = { slime: 8, mushroom: 5, fox: 4 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {

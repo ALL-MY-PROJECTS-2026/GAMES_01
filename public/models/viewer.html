@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GLB 쿼터뷰 뷰어 · 스킨드 메시 부하 테스트</title>
+<style>
+  :root{
+    --ink:#0d0f13;
+    --panel:#151922;
+    --line:#252b38;
+    --text:#c9d1de;
+    --dim:#6b7688;
+    --hot:#e8b04b;
+    --ok:#5fd08a;
+    --bad:#e06060;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--ink);color:var(--text);
+    font-family:ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  canvas{display:block}
+
+  #panel{
+    position:fixed;top:14px;left:14px;width:268px;
+    background:color-mix(in srgb,var(--panel) 92%,transparent);
+    border:1px solid var(--line);border-radius:4px;
+    backdrop-filter:blur(8px);
+  }
+  #panel h1{
+    margin:0;padding:11px 13px 10px;font-size:11px;font-weight:600;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
+    border-bottom:1px solid var(--line);
+  }
+  .row{padding:11px 13px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  label{display:block;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--dim);margin-bottom:6px}
+  select,input[type=range]{width:100%}
+  select{
+    background:#0b0e13;color:var(--text);border:1px solid var(--line);
+    border-radius:3px;padding:6px 7px;font-size:12.5px;font-family:inherit;
+  }
+  select:focus-visible,button:focus-visible,input:focus-visible{
+    outline:2px solid var(--hot);outline-offset:1px}
+  input[type=range]{accent-color:var(--hot);margin:2px 0 0}
+  .seg{display:flex;gap:0;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .seg button{
+    flex:1;background:#0b0e13;color:var(--dim);border:0;padding:7px 0;
+    font-size:11.5px;font-family:inherit;cursor:pointer;
+  }
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed=true]{background:var(--hot);color:#151107;font-weight:600}
+
+  /* the point of this tool: a live budget readout */
+  #hud{
+    position:fixed;top:14px;right:14px;
+    background:color-mix(in srgb,var(--panel) 92%,transparent);
+    border:1px solid var(--line);border-radius:4px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    min-width:186px;backdrop-filter:blur(8px);
+  }
+  #hud .m{display:flex;justify-content:space-between;gap:16px;
+    padding:7px 12px;border-bottom:1px solid var(--line)}
+  #hud .m:last-child{border-bottom:0}
+  #hud .k{color:var(--dim);letter-spacing:.04em}
+  #hud .v{font-variant-numeric:tabular-nums}
+  #fps{font-size:15px;font-weight:600}
+  .good{color:var(--ok)} .warn{color:var(--hot)} .fail{color:var(--bad)}
+
+  #note{
+    position:fixed;left:14px;bottom:14px;max-width:268px;
+    font-size:11px;line-height:1.55;color:var(--dim);
+  }
+  #err{
+    position:fixed;inset:auto 14px 14px auto;max-width:340px;padding:10px 12px;
+    background:#2a1414;border:1px solid #522;border-radius:4px;color:#f0b0b0;
+    font-size:12px;line-height:1.5;display:none;
+  }
+  @media (max-width:640px){
+    #panel{width:calc(100% - 28px)}
+    #hud{top:auto;bottom:14px;right:14px;left:14px}
+    #note{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="panel">
+  <h1>쿼터뷰 부하 테스트</h1>
+
+  <div class="row">
+    <label for="model">모델</label>
+    <select id="model">
+      <option value="RobotExpressive.glb" selected>RobotExpressive — 14 클립 / 86 본</option>
+      <option value="Fox.glb">Fox — 3 클립 / 24 본</option>
+      <option value="CesiumMan.glb">CesiumMan — 1 클립 / 19 본</option>
+      <option value="RiggedFigure.glb">RiggedFigure — 370 verts</option>
+      <option value="BrainStem.glb">BrainStem — 61k tris</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <label for="clip">애니메이션 클립</label>
+    <select id="clip"></select>
+  </div>
+
+  <div class="row">
+    <label for="count">동시 표시 <span id="countv">1</span>체</label>
+    <input id="count" type="range" min="1" max="400" value="1" step="1">
+  </div>
+
+  <div class="row">
+    <label>카메라</label>
+    <div class="seg">
+      <button id="camIso" aria-pressed="true">쿼터뷰 고정</button>
+      <button id="camFree" aria-pressed="false">자유 회전</button>
+    </div>
+  </div>
+</div>
+
+<div id="hud">
+  <div class="m"><span class="k">FPS</span><span class="v" id="fps">—</span></div>
+  <div class="m"><span class="k">draw calls</span><span class="v" id="calls">—</span></div>
+  <div class="m"><span class="k">triangles</span><span class="v" id="tris">—</span></div>
+  <div class="m"><span class="k">renderer</span><span class="v" id="api">—</span></div>
+</div>
+
+<div id="note">
+  슬라이더를 올리면서 FPS가 무너지는 지점이 이 프로젝트의 화면당 몬스터 예산입니다.
+  스킨드 메시는 인스턴싱이 걸리지 않아 draw call이 개체 수에 비례해 증가합니다.
+</div>
+
+<div id="err"></div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
+
+const stage = document.getElementById('stage');
+const errBox = document.getElementById('err');
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+document.getElementById('api').textContent =
+  renderer.capabilities.isWebGL2 ? 'WebGL 2' : 'WebGL 1';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d0f13);
+scene.fog = new THREE.Fog(0x0d0f13, 26, 62);
+
+// Quarter view: orthographic, 45° yaw, ~35° pitch — the Diablo-family camera.
+const ISO_ZOOM = 9;
+let camera = makeIso();
+function makeIso(){
+  const a = innerWidth / innerHeight;
+  const c = new THREE.OrthographicCamera(-ISO_ZOOM*a, ISO_ZOOM*a, ISO_ZOOM, -ISO_ZOOM, 0.1, 200);
+  c.position.set(20, 20, 20);
+  c.lookAt(0, 1, 0);
+  return c;
+}
+function makePersp(){
+  const c = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 200);
+  c.position.set(14, 12, 14);
+  return c;
+}
+
+let controls = null;
+function setCameraMode(iso){
+  if (controls){ controls.dispose(); controls = null; }
+  camera = iso ? makeIso() : makePersp();
+  if (!iso){
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1, 0);
+    controls.enableDamping = true;
+    controls.update();
+  }
+  document.getElementById('camIso').setAttribute('aria-pressed', String(iso));
+  document.getElementById('camFree').setAttribute('aria-pressed', String(!iso));
+}
+document.getElementById('camIso').onclick = () => setCameraMode(true);
+document.getElementById('camFree').onclick = () => setCameraMode(false);
+
+scene.add(new THREE.HemisphereLight(0x8fa4c4, 0x1a1c22, 1.5));
+const key = new THREE.DirectionalLight(0xfff0d8, 2.1);
+key.position.set(9, 16, 7);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+const s = key.shadow.camera;
+s.left = s.bottom = -22; s.right = s.top = 22; s.far = 60;
+scene.add(key);
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.MeshStandardMaterial({ color:0x1b2029, roughness:0.95 })
+);
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(120, 60, 0x2c3442, 0x1f2530);
+grid.position.y = 0.01;
+scene.add(grid);
+
+const loader = new GLTFLoader();
+const clock = new THREE.Clock();
+
+let root = null;          // container for all instances
+let mixers = [];
+let clips = [];
+let sourceScene = null;
+let baseScale = 1;
+
+const clipSel  = document.getElementById('clip');
+const countInp = document.getElementById('count');
+const countOut = document.getElementById('countv');
+
+function fail(msg){
+  errBox.style.display = 'block';
+  errBox.textContent = msg;
+}
+
+function loadModel(file){
+  errBox.style.display = 'none';
+  loader.load(file, (gltf) => {
+    sourceScene = gltf.scene;
+    clips = gltf.animations || [];
+
+    // normalise height to ~2 world units so every model reads at the same scale
+    const box = new THREE.Box3().setFromObject(sourceScene);
+    const h = box.getSize(new THREE.Vector3()).y || 1;
+    baseScale = 2 / h;
+
+    clipSel.innerHTML = '';
+    if (!clips.length){
+      clipSel.innerHTML = '<option>클립 없음</option>';
+    } else {
+      clips.forEach((c, i) => {
+        const o = document.createElement('option');
+        o.value = i;
+        o.textContent = c.name && c.name !== '?' ? c.name : `클립 ${i+1}`;
+        clipSel.appendChild(o);
+      });
+      const idle = clips.findIndex(c => /idle|survey/i.test(c.name || ''));
+      clipSel.value = idle >= 0 ? idle : 0;
+    }
+    rebuild();
+  }, undefined, () => {
+    fail(`${file} 을 불러오지 못했습니다. viewer.html 과 .glb 파일이 같은 폴더에 있는지, 로컬 서버로 열었는지 확인하세요 (file:// 직접 열기는 CORS로 차단됩니다).`);
+  });
+}
+
+function rebuild(){
+  if (root){ scene.remove(root); }
+  mixers.forEach(m => m.stopAllAction());
+  mixers = [];
+
+  root = new THREE.Group();
+  const n = +countInp.value;
+  const clipIdx = clips.length ? +clipSel.value : -1;
+
+  // ring layout so density grows outward and stays framed
+  for (let i = 0; i < n; i++){
+    const inst = skeletonClone(sourceScene);
+    inst.scale.setScalar(baseScale);
+    inst.traverse(o => { if (o.isMesh){ o.castShadow = true; o.frustumCulled = true; } });
+
+    if (n > 1){
+      const ring = Math.floor(Math.sqrt(i));
+      const idxInRing = i - ring*ring;
+      const perRing = (ring+1)*2 - 1 || 1;
+      const ang = (idxInRing / perRing) * Math.PI * 2 + ring * 0.6;
+      const r = 1.6 + ring * 1.7;
+      inst.position.set(Math.cos(ang)*r, 0, Math.sin(ang)*r);
+      inst.rotation.y = -ang + Math.PI/2;
+    }
+
+    if (clipIdx >= 0){
+      const mx = new THREE.AnimationMixer(inst);
+      const act = mx.clipAction(clips[clipIdx]);
+      act.time = Math.random() * clips[clipIdx].duration; // desync so it reads as a crowd
+      act.play();
+      mixers.push(mx);
+    }
+    root.add(inst);
+  }
+  scene.add(root);
+}
+
+document.getElementById('model').onchange = e => loadModel(e.target.value);
+clipSel.onchange = rebuild;
+countInp.oninput = () => { countOut.textContent = countInp.value; rebuild(); };
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  const a = innerWidth / innerHeight;
+  if (camera.isOrthographicCamera){
+    camera.left = -ISO_ZOOM*a; camera.right = ISO_ZOOM*a;
+    camera.top = ISO_ZOOM; camera.bottom = -ISO_ZOOM;
+  } else { camera.aspect = a; }
+  camera.updateProjectionMatrix();
+});
+
+const fpsEl = document.getElementById('fps');
+const callsEl = document.getElementById('calls');
+const trisEl = document.getElementById('tris');
+let frames = 0, acc = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta();
+  for (const m of mixers) m.update(dt);
+  if (controls) controls.update();
+  renderer.render(scene, camera);
+
+  frames++; acc += dt;
+  if (acc >= 0.5){
+    const fps = Math.round(frames / acc);
+    fpsEl.textContent = fps;
+    fpsEl.className = 'v ' + (fps >= 55 ? 'good' : fps >= 30 ? 'warn' : 'fail');
+    callsEl.textContent = renderer.info.render.calls.toLocaleString();
+    trisEl.textContent = renderer.info.render.triangles.toLocaleString();
+    frames = 0; acc = 0;
+  }
+});
+
+loadModel('RobotExpressive.glb');
+</script>
+</body>
+</html>
