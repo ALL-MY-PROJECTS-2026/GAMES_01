@@ -1,5 +1,23 @@
 const WEAPON_SLOTS = { punch: 2, sword: 3, gun: 4 };
 
+let playerName = '이림';
+
+export function setPlayerIdentity(cfg) {
+  playerName = cfg.name;
+  const p = document.getElementById('pportrait');
+  p.className = 'portrait ' + cfg.portraitClass;
+  p.textContent = cfg.letter;
+}
+
+export function setPartyInfo(idx, cfg) {
+  const nameEl = document.getElementById(`comp${idx}-name`);
+  const p = document.getElementById(`comp${idx}-portrait`);
+  if (!nameEl || !p) return;
+  nameEl.innerHTML = `<b>${cfg.name}</b> — ${cfg.role}`;
+  p.className = 'portrait ' + cfg.portraitClass;
+  p.textContent = cfg.letter;
+}
+
 export function initHUD() {
   const bar = document.getElementById('quickbar');
   for (let i = 1; i <= 8; i++) {
@@ -70,7 +88,7 @@ export function setXP(cur, max) {
 }
 
 export function setLevel(level) {
-  document.getElementById('char-name').innerHTML = `<b>이림</b> (Lv.${level})`;
+  document.getElementById('char-name').innerHTML = `<b>${playerName}</b> (Lv.${level})`;
 }
 
 export function setGold(gold) {

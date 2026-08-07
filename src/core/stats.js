@@ -33,7 +33,8 @@ export function save() {
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
-      weapon: playerRef ? playerRef.weapon : 'punch'
+      weapon: playerRef ? playerRef.weapon : 'punch',
+      charKey: playerRef ? playerRef.charKey : undefined
     }));
   } catch (e) { /* storage unavailable */ }
 }

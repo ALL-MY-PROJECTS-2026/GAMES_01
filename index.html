@@ -27,6 +27,7 @@
     .bar.small { height: 8px; margin-top: 3px; }
     .bar .fill { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; transition: width 0.2s; }
     #hpfill { background: linear-gradient(#e05a4e, #a02c22); }
+    #mpfill { background: linear-gradient(#7f8ae8, #4238a8); }
     #comp1-hp { background: linear-gradient(#5a8ae0, #2c50a0); }
     #comp2-hp { background: linear-gradient(#5ac07a, #2c7a46); }
     #xpfill { background: linear-gradient(#e8c25f, #a8821f); }
@@ -94,6 +95,19 @@
     #levelup.show { animation: lvup 2.2s ease-out forwards; }
     @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
 
+    #charselect { display: none; position: fixed; inset: 0; z-index: 20; background: rgba(8, 10, 18, 0.94); flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: #e8dcc4; }
+    .cs-title { font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 12px rgba(0,0,0,0.8); }
+    .cs-sub { font-size: 14px; color: #b8a888; margin-bottom: 18px; }
+    #charselect-cards { display: flex; gap: 16px; }
+    .char-card { width: 180px; padding: 18px 14px 14px; text-align: center; background: rgba(16, 18, 30, 0.9); border: 2px solid #6a5c3a; border-radius: 12px; cursor: pointer; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; position: relative; }
+    .char-card:hover { border-color: #e8c25f; transform: translateY(-4px); box-shadow: 0 6px 18px rgba(232, 194, 95, 0.25); }
+    .char-card.last-pick { border-color: #c9a86a; }
+    .char-card .portrait { width: 58px; height: 58px; font-size: 24px; margin: 0 auto 10px; }
+    .cc-name { font-size: 18px; font-weight: 700; color: #e8c25f; }
+    .cc-role { font-size: 12px; color: #c9a86a; margin: 3px 0 8px; }
+    .cc-desc { font-size: 11.5px; line-height: 1.5; color: #b8a888; min-height: 50px; }
+    .cc-last { position: absolute; top: 8px; right: 8px; font-size: 10px; border: 1px solid #c9a86a; border-radius: 5px; padding: 1px 6px; color: #c9a86a; }
+
     #inventory { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; padding: 14px 16px; pointer-events: auto; }
     .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; color: #e8c25f; }
     .inv-title span { color: #c9a86a; }
@@ -106,33 +120,39 @@
 </head>
 <body>
   <div id="app"></div>
+  <div id="charselect">
+    <div class="cs-title">귀곡의 초원</div>
+    <div class="cs-sub">함께할 퇴마사를 선택하세요 — 나머지 둘은 동료로 함께합니다</div>
+    <div id="charselect-cards"></div>
+  </div>
   <div id="hud">
     <div id="party" class="panel">
       <div class="prow">
-        <div class="portrait p-ilim">림</div>
+        <div class="portrait p-ilim" id="pportrait">림</div>
         <div class="pinfo">
           <div class="pname" id="char-name"><b>이림</b> (Lv.1)</div>
           <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
+          <div class="bar small"><div id="mpfill" class="fill"></div><div id="mptxt" class="txt"></div></div>
           <div class="bar small"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
         </div>
       </div>
       <div class="prow">
-        <div class="portrait p-kusa">쿠</div>
+        <div class="portrait p-kusa" id="comp1-portrait">쿠</div>
         <div class="pinfo">
-          <div class="pname"><b>쿠사</b> — 술법사</div>
+          <div class="pname" id="comp1-name"><b>쿠사</b> — 술법사</div>
           <div class="bar"><div id="comp1-hp" class="fill"></div><div id="comp1-txt" class="txt"></div></div>
         </div>
       </div>
       <div class="prow">
-        <div class="portrait p-rening">레</div>
+        <div class="portrait p-rening" id="comp2-portrait">레</div>
         <div class="pinfo">
-          <div class="pname"><b>레닝</b> — 사수</div>
+          <div class="pname" id="comp2-name"><b>레닝</b> — 사수</div>
           <div class="bar"><div id="comp2-hp" class="fill"></div><div id="comp2-txt" class="txt"></div></div>
         </div>
       </div>
       <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리 · <span class="invkey">K</span> 스킬 <span id="skill-pts"></span></div>
     </div>
-    <div id="hint" class="panel">클릭 이동/공격 · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · F 공격 · 2/3/4 무기 · 1 혼백 · K 스킬 · E 대화</div>
+    <div id="hint" class="panel">좌클릭 이동/물리공격 · 우클릭 술법(MP) · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · 2/3/4 무기 · 1 혼백 · K 스킬 · E 대화</div>
     <div id="levelup"></div>
     <div id="inventory" class="panel">
       <div class="inv-title">인벤토리 <span id="inv-gold">0 G</span></div>

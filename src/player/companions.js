@@ -61,7 +61,7 @@ class Companion {
       orb.material = orbMat;
       orb.position.set(0.48, 1.85, 0.1);
       orb.parent = this.group;
-    } else {
+    } else if (cfg.role === 'archer') {
       const bow = MeshBuilder.CreateBox('bow', { width: 0.08, height: 0.7, depth: 0.12 }, scene);
       bow.material = lambert(scene, 'bowMat', '#7a5a30');
       bow.position.set(0.45, 1.15, 0.1);
@@ -255,20 +255,18 @@ class Companion {
   }
 }
 
+const COMPANION_OFFSETS = [{ x: -1.6, z: -1.6 }, { x: 1.6, z: -1.8 }];
+
 export class CompanionManager {
-  constructor(scene, shadow) {
-    this.list = [
-      new Companion(scene, shadow, {
-        name: '쿠사', role: 'mage', slot: 1, color: '#34406e', tint: '#8fa8ff',
-        projColor: '#7fb0ff', damage: 10, interval: 1.6, range: 15, hp: 80,
-        offset: { x: -1.6, z: -1.6 }
-      }),
-      new Companion(scene, shadow, {
-        name: '레닝', role: 'archer', slot: 2, color: '#2e5a38', tint: '#9fdca8',
-        projColor: '#ffd666', damage: 7, interval: 1.0, range: 16, hp: 80,
-        offset: { x: 1.6, z: -1.8 }
-      })
-    ];
+  // chars: 조작 캐릭터를 제외한 나머지 CHARACTERS 항목 배열
+  constructor(scene, shadow, chars) {
+    this.list = chars.map((c, i) => new Companion(scene, shadow, {
+      name: c.name, role: c.compRole, slot: i + 1,
+      color: c.companion.color, tint: c.companion.tint, projColor: c.companion.projColor,
+      damage: c.companion.damage, interval: c.companion.interval,
+      range: c.companion.range, hp: c.companion.hp,
+      offset: COMPANION_OFFSETS[i] || { x: 0, z: -2.2 }
+    }));
   }
 
   update(delta, player, monsters, obstacles, projectiles, onHit) {

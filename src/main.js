@@ -9,6 +9,8 @@ import { ProjectileManager } from './world/projectiles.js';
 import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog.js';
 import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
+import { showCharSelect } from './ui/charselect.js';
+import { CHARACTERS } from './core/characters.js';
 import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
 import { Player } from './player/player.js';
 import { CompanionManager } from './player/companions.js';
@@ -17,18 +19,24 @@ import { applyWeaponSkills } from './core/skills.js';
 import { ThirdPersonCamera } from './player/camera.js';
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
-import { initHUD, setMP, toggleInventory, setActiveWeapon } from './ui/hud.js';
+import {
+  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity, setPartyInfo
+} from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 
 async function boot() {
   const { engine, scene, canvas, shadow } = createScene(document.getElementById('app'));
   const input = new Input(canvas);
 
+  // 캐릭터 선택 화면을 띄운 채로 물리/월드 로딩을 병행
+  const choicePromise = showCharSelect();
   await initPhysics(scene);
   const { obstacles, ground } = buildWorld(scene, shadow);
   addStaticWorld(scene, ground, obstacles);
+  const charKey = await choicePromise;
+  const others = Object.values(CHARACTERS).filter((c) => c.key !== charKey);
 
-  const player = new Player(scene, obstacles, shadow);
+  const player = new Player(scene, obstacles, shadow, charKey);
   const monsters = new MonsterManager(scene, obstacles, shadow);
   const npcs = new NPCManager(scene, obstacles, shadow);
   const camRig = new ThirdPersonCamera(scene);
@@ -41,7 +49,7 @@ async function boot() {
   const drops = new DropManager(scene, true);
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
-  const companions = new CompanionManager(scene, shadow);
+  const companions = new CompanionManager(scene, shadow, others);
   const party = [player, ...companions.list];
 
   scene.cameraToUseForPointers = camRig.cam;
@@ -55,12 +63,25 @@ async function boot() {
   marker.rotation.x = Math.PI / 2;
   marker.setEnabled(false);
 
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 2) return;
     if (isDialogOpen() || isShopOpen()) return;
     const pick = scene.pick(scene.pointerX, scene.pointerY);
     if (!pick || !pick.hit) return;
     const mon = pick.pickedMesh && pick.pickedMesh.metadata && pick.pickedMesh.metadata.monster;
+
+    if (e.button === 2) {
+      // 우클릭 = 술법 공격 (몬스터 또는 지점 방향으로 즉시 시전)
+      if (mon && !mon.dead) {
+        player.attackTarget = mon;
+        player.castMagic(mon.group.position);
+      } else if (pick.pickedPoint) {
+        player.castMagic(pick.pickedPoint);
+      }
+      return;
+    }
+
     if (mon && !mon.dead) {
       player.attackTarget = mon;
       player.moveTarget = null;
@@ -80,12 +101,14 @@ async function boot() {
   };
 
   initHUD();
+  setPlayerIdentity(CHARACTERS[charKey]);
+  others.forEach((c, i) => setPartyInfo(i + 1, c));
   initDialog();
   initShop();
   initSkills();
   initAudio();
   bindPlayer(player);
-  setMP(100, 100);
+  setMP(player.mp, player.maxMp);
 
   const weaponKeys = { Digit2: 'punch', Digit3: 'sword', Digit4: 'gun' };
   setActiveWeapon(player.weapon);

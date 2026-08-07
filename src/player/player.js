@@ -9,14 +9,17 @@ import {
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
-import { setHP } from '../ui/hud.js';
+import { setHP, setMP } from '../ui/hud.js';
 import { weaponDamage, stats } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
+import { CHARACTERS } from '../core/characters.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
 const GRAVITY = 30;
 const JUMP_SPEED = 9.5;
+const MAGIC_COST = 20;
+const MAGIC_CD = 0.8;
 const COMBO_WINDOW = 0.9;
 const PUNCH_COMBO = [
   { dmgMul: 0.85, knock: 3.5, cd: 0.3, lunge: 3.5, animSpeed: 2.2 },
@@ -27,9 +30,11 @@ const LOOPING = new Set(['Idle', 'Walking', 'Running']);
 const SPEEDS = { Idle: 1, Walking: 1.2, Running: 1.25, Jump: 1.25, Punch: 2.0 };
 
 export class Player {
-  constructor(scene, obstacles = [], shadow = null) {
+  constructor(scene, obstacles = [], shadow = null, charKey = 'ilim') {
     this.scene = scene;
     this.obstacles = obstacles;
+    this.charKey = charKey;
+    this.charCfg = CHARACTERS[charKey] || CHARACTERS.ilim;
     this.group = new TransformNode('player', scene);
 
     this.placeholder = MeshBuilder.CreateCapsule(
@@ -48,6 +53,9 @@ export class Player {
     this.onGround = true;
     this.maxHp = 100;
     this.hp = 100;
+    this.maxMp = this.charCfg.maxMp;
+    this.mp = this.maxMp;
+    this.magicCd = 0;
     this.attackCd = 0;
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
@@ -95,8 +103,16 @@ export class Player {
     this.model.scaling.setAll(scale);
     this.model.position.y = -min.y * scale;
 
+    const tint = this.charCfg.tint ? Color3.FromHexString(this.charCfg.tint) : null;
+    const tinted = new Set();
     for (const m of res.meshes) {
       if (shadow && m.getTotalVertices && m.getTotalVertices() > 0) shadow.addShadowCaster(m);
+      const mat = m.material;
+      if (tint && mat && !tinted.has(mat)) {
+        tinted.add(mat);
+        if (mat.albedoColor) mat.albedoColor = mat.albedoColor.multiply(tint);
+        else if (mat.diffuseColor) mat.diffuseColor = mat.diffuseColor.multiply(tint);
+      }
     }
 
     this.groups = {};
@@ -189,6 +205,46 @@ export class Player {
     }
   }
 
+  // 우클릭 술법: 청염탄 — MP 소모, 원거리 즉시 시전
+  castMagic(point) {
+    if (this.magicCd > 0 || this.dead) return false;
+    if (this.mp < MAGIC_COST) return false;
+    if (!this.projectiles) return false;
+
+    this.mp -= MAGIC_COST;
+    this.magicCd = MAGIC_CD;
+    setMP(Math.round(this.mp), this.maxMp);
+
+    this.group.rotation.y = Math.atan2(
+      point.x - this.group.position.x,
+      point.z - this.group.position.z
+    );
+    const face = this._face.copyFromFloats(
+      Math.sin(this.group.rotation.y),
+      0,
+      Math.cos(this.group.rotation.y)
+    );
+
+    this.play('Wave', true, 1.8);
+    this.lockTimer = 0.35;
+    this.currentLunge = 0;
+    this.lungeUntil = 0;
+    sfx.shoot();
+
+    const origin = this.group.position.clone();
+    origin.y += 1.15;
+    origin.x += face.x * 0.6;
+    origin.z += face.z * 0.6;
+    const damage = Math.round((14 + stats.level * 2) * this.charCfg.magicMul);
+    this.projectiles.spawn(origin, face.clone(), damage, 7, '#7fb0ff');
+    return true;
+  }
+
+  _dmgMul(weaponKey) {
+    const w = WEAPONS[weaponKey];
+    return w && w.type === 'ranged' ? this.charCfg.rangedMul : this.charCfg.meleeMul;
+  }
+
   tryAttack(input, monsters, camRig = null, facePoint = null) {
     if (this.attackCd > 0) return;
     if (!input.consumeAttack()) return;
@@ -223,7 +279,11 @@ export class Player {
         origin.y += 1.15;
         origin.x += face.x * 0.6;
         origin.z += face.z * 0.6;
-        this.projectiles.spawn(origin, face.clone(), weaponDamage(w.damage, this.weapon), w.knock);
+        this.projectiles.spawn(
+          origin, face.clone(),
+          Math.round(weaponDamage(w.damage, this.weapon) * this._dmgMul(this.weapon)),
+          w.knock
+        );
       }
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
@@ -279,8 +339,9 @@ export class Player {
         to.normalize();
         if (Vector3.Dot(to, fwd) < w.arcDot) continue;
       }
+      const wKey = this.pendingWeaponKey || this.weapon;
       const killed = m.takeDamage(
-        weaponDamage(w.damage, this.pendingWeaponKey || this.weapon),
+        Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey)),
         fwd,
         w.knock
       );
@@ -383,6 +444,11 @@ export class Player {
     }
 
     this.attackCd = Math.max(0, this.attackCd - delta);
+    this.magicCd = Math.max(0, this.magicCd - delta);
+    if (this.mp < this.maxMp) {
+      this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);
+      setMP(Math.round(this.mp), this.maxMp);
+    }
     this.lockTimer = Math.max(0, this.lockTimer - delta);
     if (this.comboTimer > 0) {
       this.comboTimer -= delta;
