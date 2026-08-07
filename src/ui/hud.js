@@ -117,6 +117,14 @@ export function flashLevelUp(level) {
   el.classList.add('show');
 }
 
+export function flashHurt() {
+  const el = document.getElementById('hitflash');
+  if (!el) return;
+  el.classList.remove('show');
+  void el.offsetWidth;
+  el.classList.add('show');
+}
+
 let comboHideT = null;
 
 export function showCombo(n, finisher = false) {

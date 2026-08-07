@@ -153,6 +153,8 @@ class Monster {
     this.attackT = 0;
     this.attackAnim = 0;
     this.flashT = 0;
+    this.velY = 0;
+    this.deathT = 0;
     this.wanderT = 0;
     this.wanderDir = new Vector3(0, 0, 0);
     this.knock = new Vector3(0, 0, 0);
@@ -221,9 +223,9 @@ class Monster {
     this.group.setEnabled(v);
   }
 
-  takeDamage(amount, dir = null, knock = 9) {
+  takeDamage(amount, dir = null, knock = 9, knockUp = 0) {
     if (this.dead) return false;
-    this.hp -= amount;
+    this.hp = Math.max(0, this.hp - amount);
     this.flashT = 0.15;
     this.flashMat.diffuseColor.copyFrom(RED);
     this.body.scaling.set(1.18, 0.45, 1.18);
@@ -231,10 +233,16 @@ class Monster {
       this.knock.copyFromFloats(dir.x, 0, dir.z);
       this.knock.scaleInPlace(knock);
     }
+    if (knockUp > 0) this.velY = Math.max(this.velY, knockUp);
     if (this.hp <= 0) {
       this.dead = true;
       this.respawnT = RESPAWN_TIME;
-      this.setVisible(false);
+      // 사망 연출: 막타 방향으로 시체가 날아간다 (PHYSICS.md §2-4)
+      this.deathT = 0.55;
+      this.knock.scaleInPlace(1.4);
+      this.velY = Math.max(this.velY, 4.5);
+      this.hpBg.setEnabled(false);
+      this.hpBar.setEnabled(false);
       return true;
     }
     return false;
@@ -248,10 +256,33 @@ class Monster {
 
   update(delta, targets, obstacles) {
     if (this.dead) {
+      if (this.deathT > 0) {
+        this.deathT -= delta;
+        const pos = this.group.position;
+        this.velY -= 30 * delta;
+        pos.y += this.velY * delta;
+        pos.x += this.knock.x * delta;
+        pos.z += this.knock.z * delta;
+        this.knock.scaleInPlace(Math.exp(-2 * delta));
+        this.body.rotation.x += 9 * delta;
+        const s = Math.max(0.25, this.deathT / 0.55);
+        this.body.scaling.set(s, s, s);
+        if (this.deathT <= 0 || pos.y < -1) {
+          this.deathT = 0;
+          this.setVisible(false);
+          pos.y = 0;
+          this.velY = 0;
+          this.knock.setAll(0);
+          this.body.rotation.x = 0;
+          this.body.scaling.set(1, 1, 1);
+        }
+      }
       this.respawnT -= delta;
       if (this.respawnT <= 0) {
         this.dead = false;
         this.hp = this.cfg.hp;
+        this.hpBg.setEnabled(true);
+        this.hpBar.setEnabled(true);
         this.setVisible(true);
         this.placeRandom();
       }
@@ -268,7 +299,19 @@ class Monster {
 
     const pos = this.group.position;
 
-    if (this.knock.lengthSquared() > 0.04) {
+    // 에어본(수직) + 넉백(수평) — 힘을 받는 동안은 행동 불가 (PHYSICS.md §2-2/2-3)
+    const airborne = pos.y > 0.001 || this.velY > 0;
+    if (airborne || this.knock.lengthSquared() > 0.04) {
+      if (airborne) {
+        this.velY -= 30 * delta;
+        pos.y += this.velY * delta;
+        if (pos.y <= 0) {
+          pos.y = 0;
+          this.velY = 0;
+          this.body.scaling.set(1.3, 0.55, 1.3); // 착지 스쿼시
+          this.flashT = Math.max(this.flashT, 0.12);
+        }
+      }
       pos.addInPlace(this._tmp.copyFrom(this.knock).scaleInPlace(delta));
       this.knock.scaleInPlace(Math.exp(-6 * delta));
       pos.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.x));

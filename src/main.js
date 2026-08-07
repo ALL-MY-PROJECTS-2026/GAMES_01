@@ -23,6 +23,7 @@ import {
   initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
+import { juice, hitstop, shake } from './core/juice.js';
 
 async function boot() {
   const { engine, scene, canvas, shadow } = createScene(document.getElementById('app'));
@@ -145,6 +146,13 @@ async function boot() {
   };
 
   function update(delta) {
+    // 히트스톱: 월드 시간만 6%로 감속, 카메라/UI는 실시간 (PHYSICS.md §2-1)
+    let d = delta;
+    if (juice.hitstopT > 0) {
+      juice.hitstopT -= delta;
+      d = delta * 0.06;
+    }
+
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
@@ -188,25 +196,36 @@ async function boot() {
         at && !at.dead ? at.group.position : null
       );
     }
-    player.update(delta, talking ? idleInput : input, camRig);
+    player.update(d, talking ? idleInput : input, camRig);
 
     const handleHit = (m, killed) => {
       if (killed) {
+        hitstop(0.12);
+        shake(0.3, 0.22);
         sfx.kill();
         if (player.onKill) player.onKill(m);
       } else {
+        hitstop(0.025);
         sfx.hit();
       }
     };
-    monsters.update(delta, party);
-    companions.update(delta, player, monsters.list, obstacles, projectiles, handleHit);
-    projectiles.update(delta, monsters.list, handleHit);
+    monsters.update(d, party);
+    companions.update(d, player, monsters.list, obstacles, projectiles, handleHit);
+    projectiles.update(d, monsters.list, handleHit);
     npcs.update(delta, player);
-    drops.update(delta, player, () => {
+    drops.update(d, player, () => {
       addJelly(1);
       sfx.pickup();
     });
     camRig.update(delta, input, player, player.speedFov);
+    if (juice.shakeT > 0) {
+      juice.shakeT -= delta;
+      const k = juice.shakeMag * Math.min(1, juice.shakeT * 6);
+      camRig.cam.position.x += (Math.random() - 0.5) * k;
+      camRig.cam.position.y += (Math.random() - 0.5) * k;
+      camRig.cam.position.z += (Math.random() - 0.5) * k;
+      if (juice.shakeT <= 0) juice.shakeMag = 0;
+    }
     minimap.update();
   }
 

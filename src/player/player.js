@@ -9,7 +9,8 @@ import {
 import '@babylonjs/loaders/glTF';
 import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
-import { setHP, setMP, showCombo } from '../ui/hud.js';
+import { setHP, setMP, showCombo, flashHurt } from '../ui/hud.js';
+import { hitstop, shake } from '../core/juice.js';
 import { weaponDamage, stats } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
@@ -27,8 +28,8 @@ const PUNCH_COMBO = [
   { dmgMul: 0.8, knock: 3, cd: 0.2, lunge: 3.6, anim: { name: 'Punch', speed: 2.8, toFrac: 0.7 } },
   { dmgMul: 0.9, knock: 3.5, cd: 0.24, lunge: 3.8, anim: { name: 'Punch', speed: 2.5, fromFrac: 0.3 } },
   { dmgMul: 1.05, knock: 5, cd: 0.3, lunge: 4.2, anim: { name: 'Wave', speed: 3.0, toFrac: 0.45 } },
-  { dmgMul: 1.25, knock: 7, cd: 0.38, lunge: 4.6, anim: { name: 'Jump', speed: 2.0, fromFrac: 0.08, toFrac: 0.72 } },
-  { dmgMul: 2.0, knock: 18, cd: 0.68, lunge: 6.0, anim: { name: 'Punch', speed: 1.35 } }
+  { dmgMul: 1.25, knock: 7, knockUp: 9, cd: 0.38, lunge: 4.6, anim: { name: 'Jump', speed: 2.0, fromFrac: 0.08, toFrac: 0.72 } },
+  { dmgMul: 2.0, knock: 18, knockUp: 2.5, cd: 0.68, lunge: 6.0, anim: { name: 'Punch', speed: 1.35 } }
 ];
 const FINISHER_STEP = PUNCH_COMBO.length - 1;
 const LOOPING = new Set(['Idle', 'Walking', 'Running']);
@@ -201,6 +202,8 @@ export class Player {
   takeDamage(amount, dir = null) {
     this.hp = Math.max(0, this.hp - amount);
     setHP(this.hp, this.maxHp);
+    flashHurt();
+    shake(0.28, 0.2);
     sfx.hurt();
     if (dir) {
       this.knockV.copyFromFloats(dir.x, 0, dir.z);
@@ -320,7 +323,8 @@ export class Player {
       this.pendingWeapon = {
         ...w,
         damage: Math.round(w.damage * st.dmgMul * fin.dmgMul),
-        knock: st.knock * fin.knockMul
+        knock: st.knock * fin.knockMul,
+        knockUp: st.knockUp || 0
       };
       this.pendingWeaponKey = this.weapon;
       this.play(a.name, true, a.speed, fromFrac, toFrac);
@@ -361,18 +365,25 @@ export class Player {
       const killed = m.takeDamage(
         Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey)),
         fwd,
-        w.knock
+        w.knock,
+        w.knockUp || 0
       );
       hitAny = true;
       if (killed) {
+        hitstop(0.12);
+        shake(0.3, 0.22);
         sfx.kill();
         if (this.onKill) this.onKill(m);
       } else {
         sfx.hit();
       }
     }
-    if (hitAny && (this.pendingWeaponKey || this.weapon) === 'punch') {
-      showCombo(this.pendingComboStep + 1, this.pendingComboStep === FINISHER_STEP);
+    if (hitAny) {
+      const isPunch = (this.pendingWeaponKey || this.weapon) === 'punch';
+      const finisher = isPunch && this.pendingComboStep === FINISHER_STEP;
+      hitstop(finisher ? 0.09 : 0.05);
+      if (finisher) shake(0.22, 0.18);
+      if (isPunch) showCombo(this.pendingComboStep + 1, finisher);
     }
   }
 
