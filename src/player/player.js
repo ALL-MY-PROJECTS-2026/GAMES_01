@@ -460,7 +460,11 @@ export class Player {
         const dz = m.group.position.z - origin.z;
         if (dx * dx + dz * dz > s.radius * s.radius) continue;
         const d = Math.max(0.001, Math.hypot(dx, dz));
-        const killed = m.takeDamage(damage, { x: dx / d, z: dz / d }, s.knock, s.knockUp);
+        const dir = { x: dx / d, z: dz / d };
+        const relayed = this.reportDamage && this.reportDamage(m, damage, dir, s.knock, s.knockUp);
+        const killed = relayed ? false
+          : (this.applyDamage ? this.applyDamage(m, damage, dir, s.knock, s.knockUp)
+                              : m.takeDamage(damage, dir, s.knock, s.knockUp));
         this.popDamage(m, damage, true);
         m.slowT = s.slowDuration;
         m.slowMul = s.slowMul;
@@ -499,8 +503,13 @@ export class Player {
         const dx = best.group.position.x - from.x;
         const dz = best.group.position.z - from.z;
         const d = Math.max(0.001, Math.hypot(dx, dz));
-        const killed = best.takeDamage(Math.round(dmg), { x: dx / d, z: dz / d }, s.knock, 0);
-        this.popDamage(best, Math.round(dmg), i === 0);
+        const dir = { x: dx / d, z: dz / d };
+        const dd = Math.round(dmg);
+        const relayed = this.reportDamage && this.reportDamage(best, dd, dir, s.knock, 0);
+        const killed = relayed ? false
+          : (this.applyDamage ? this.applyDamage(best, dd, dir, s.knock, 0)
+                              : best.takeDamage(dd, dir, s.knock, 0));
+        this.popDamage(best, dd, i === 0);
         if (this.onKill && killed) this.onKill(best);
         from = { x: best.group.position.x, z: best.group.position.z };
         dmg *= s.falloff;
@@ -590,9 +599,13 @@ export class Player {
           const dz = m.group.position.z - a.z;
           if (dx * dx + dz * dz > a.radius * a.radius) continue;
           const d = Math.max(0.001, Math.hypot(dx, dz));
-          const killed = m.takeDamage(a.damage, { x: dx / d, z: dz / d }, a.knock, 0);
+          const dir = { x: dx / d, z: dz / d };
+          const relayed = this.reportDamage && this.reportDamage(m, a.damage, dir, a.knock, 0);
+          const killed = relayed ? false
+            : (this.applyDamage ? this.applyDamage(m, a.damage, dir, a.knock, 0)
+                                : m.takeDamage(a.damage, dir, a.knock, 0));
           this.popDamage(m, a.damage, false);
-          if (onHit) onHit(m, killed);
+          if (onHit && !relayed) onHit(m, killed);
         }
       }
       if (a.t <= 0) this.groundAreas.splice(i, 1);
@@ -776,7 +789,10 @@ export class Player {
       const dealt = Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey));
       // 멀티: 판정은 호스트가 한다. 비호스트는 보고만 하고 숫자는 띄운다.
       const relayed = this.reportDamage && this.reportDamage(m, dealt, fwd, w.knock, w.knockUp || 0);
-      const killed = relayed ? false : m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0);
+      const killed = relayed ? false
+        : (this.applyDamage
+            ? this.applyDamage(m, dealt, fwd, w.knock, w.knockUp || 0)
+            : m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0));
       this.popDamage(m, dealt, this.pendingIsFinisher);
       hitAny = true;
       // D. 타격 이펙트 — 무기별 색

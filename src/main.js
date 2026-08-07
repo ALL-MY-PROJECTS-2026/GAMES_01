@@ -131,12 +131,7 @@ async function boot() {
       marker.setEnabled(true);
     }
   });
-  player.onKill = (m) => {
-    const cfg = m.cfg;
-    addXp(cfg.xp);
-    addGold(cfg.gold[0] + Math.floor(Math.random() * (cfg.gold[1] - cfg.gold[0] + 1)));
-    drops.spawnFor(cfg, m.group.position, cfg.jelly);
-  };
+  // 처치 보상은 applyDamage → onMonsterKilled 에서 기여도대로 지급한다
 
   initHUD();
   setPlayerIdentity(CHARACTERS[charKey]);
@@ -259,12 +254,79 @@ async function boot() {
   };
 
   // 호스트: 다른 피어가 보고한 타격을 실제 피해로 적용한다
-  net.onHitReport = (rep) => {
+  net.onHitReport = (rep, peerId) => {
     const mon = monsters.list[rep.i];
     if (!mon || mon.dead) return;
+    credit(mon, peerId, rep.d);
     const killed = mon.takeDamage(rep.d, { x: rep.x, z: rep.z }, rep.k, rep.u);
-    if (killed) drops.spawnFor(mon.cfg, mon.group.position, mon.cfg.jelly);
+    if (killed) onMonsterKilled(mon);
   };
+
+  // ── 기여도 집계와 보상 분배 ──────────────────────────────
+  // 멀티에서는 피해 판정을 호스트가 하므로, 처치 보상도 호스트가 계산해 나눠준다.
+  // 누가 얼마나 때렸는지를 몬스터마다 기록해 그 비율대로 경험치·골드·아이템을 준다.
+  const SELF = () => (net.connected ? net.selfId : 'me');
+
+  function credit(mon, who, dmg) {
+    if (!mon._credit) mon._credit = {};
+    mon._credit[who] = (mon._credit[who] || 0) + dmg;
+  }
+
+  // 기여 비율 (합이 1)
+  function shares(mon) {
+    const c = mon._credit || {};
+    const total = Object.values(c).reduce((a, b) => a + b, 0);
+    if (total <= 0) return { [SELF()]: 1 };
+    const out = {};
+    for (const [k, v] of Object.entries(c)) out[k] = v / total;
+    return out;
+  }
+
+  // 가중 추첨으로 아이템 주인을 뽑는다 (많이 때린 쪽이 자주 가져간다)
+  function pickOwner(sh) {
+    let r = Math.random();
+    for (const [k, v] of Object.entries(sh)) { r -= v; if (r <= 0) return k; }
+    return Object.keys(sh)[0];
+  }
+
+  // 내 몫을 실제로 지급한다
+  function grant(cfg, share) {
+    if (share <= 0) return;
+    const xp = Math.max(1, Math.round(cfg.xp * share));
+    const goldBase = cfg.gold[0] + Math.floor(Math.random() * (cfg.gold[1] - cfg.gold[0] + 1));
+    addXp(xp);
+    addGold(Math.max(1, Math.round(goldBase * share)));
+  }
+
+  // 호스트(또는 싱글)에서 처치가 확정됐을 때
+  function onMonsterKilled(mon) {
+    const sh = shares(mon);
+    const cfg = mon.cfg;
+    // 아이템: 개수만큼 주인을 뽑는다
+    const owners = [];
+    for (let i = 0; i < cfg.jelly; i++) owners.push(pickOwner(sh));
+    const pos = { x: mon.group.position.x, z: mon.group.position.z };
+
+    if (net.connected) {
+      net.broadcast({ t: 'kill', xp: cfg.xp, g: cfg.gold, sh, o: owners,
+        x: pos.x, z: pos.z, hp: cfg.hp, b: cfg.isBoss ? 1 : 0 });
+    }
+    // 내 몫
+    grant(cfg, sh[SELF()] || 0);
+    const mine = owners.filter((o) => o === SELF()).length;
+    if (mine > 0) drops.spawnFor(cfg, mon.group.position, mine);
+    mon._credit = null;
+  }
+
+  // 로컬에서 피해를 적용하는 경로 (호스트이거나 싱글) — 기여도를 기록한다
+  player.applyDamage = (mon, dmg, dir, knock, knockUp) => {
+    credit(mon, SELF(), dmg);
+    const killed = mon.takeDamage(dmg, dir, knock, knockUp);
+    if (killed) onMonsterKilled(mon);
+    return killed;
+  };
+  projectiles.applyDamage = (mon, dmg, dir, knock, knockUp) =>
+    player.applyDamage(mon, dmg, dir, knock, knockUp);
 
   // 몬스터가 피해를 입을 때: 비호스트면 직접 적용하지 않고 호스트에 보고한다
   projectiles.reportDamage = (monster, dmg, dir, knock, knockUp) =>
@@ -285,6 +347,14 @@ async function boot() {
     const gh = ghosts.map.get(peerId);
     if (gh && e.r !== undefined) { gh.target.ry = e.r; gh.group.rotation.y = e.r; }
 
+    if (e.t === 'kill') {
+      const myShare = e.sh && e.sh[net.selfId];
+      if (myShare) grant({ xp: e.xp, gold: e.g }, myShare);
+      const mine = (e.o || []).filter((o) => o === net.selfId).length;
+      // 등급을 그대로 받아 같은 급의 아이템이 나오게 한다
+      if (mine > 0) drops.spawnFor({ hp: e.hp || 1, isBoss: !!e.b }, { x: e.x, z: e.z }, mine);
+      return;
+    }
     if (e.t === 'chat') {
       pushChat(e.n || '동료', e.m, 'peer');
       return;

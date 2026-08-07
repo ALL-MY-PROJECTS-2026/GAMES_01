@@ -236,7 +236,10 @@ export class ProjectileManager {
         const dz = pos.z - m.group.position.z;
         if (dx * dx + dz * dz < 0.72 * 0.72 && pos.y < 1.6) {
           const relayed = this.reportDamage && this.reportDamage(m, p.damage, p.dirN, p.knock, 0);
-          const killed = relayed ? false : m.takeDamage(p.damage, p.dirN, p.knock);
+          const killed = relayed ? false
+            : (this.applyDamage
+                ? this.applyDamage(m, p.damage, p.dirN, p.knock, 0)
+                : m.takeDamage(p.damage, p.dirN, p.knock));
           if (this.vfx) {
             this.vfx.burst(m.group.position, { size: 1.4, color: '#ffd666', dur: 0.26 });
             this.vfx.sparks(m.group.position, { count: 10, color: '#ffe9a8', power: 4.5, size: 0.2 });
