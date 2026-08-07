@@ -92,6 +92,37 @@ export const MONSTER_TYPES = {
       props: ['2H_Staff', 'Spellbook']
     }
   },
+  // 골귀 자객 — 빠르고 두 자루 단검을 쓴다. 물러서지 않고 파고든다
+  boneRogue: {
+    name: '골귀 자객',
+    hp: 52, damage: 10, speed: 5.6, wanderSpeed: 1.6, aggro: 14, attackRange: 1.9,
+    xp: 28, gold: [10, 18], jelly: 1,
+    barY: 2.0, ring: [30, 75],
+    model: {
+      file: 'Skeleton_Rogue.glb', height: 1.75,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: 'Dualwield_Melee_Attack_Slice', hit: 'Hit_A', death: 'Death_A'
+      },
+      kitProps: [{ file: 'dagger.gltf', height: 0.6 }]
+    }
+  },
+  // 골귀 술사 — 언데드 주술사. 멀리서 저주탄을 쏜다
+  boneMage: {
+    name: '골귀 술사',
+    hp: 48, damage: 15, speed: 2.6, wanderSpeed: 0.8, aggro: 19, attackRange: 16,
+    xp: 36, gold: [16, 28], jelly: 2,
+    barY: 2.2, ring: [45, 88],
+    ranged: { projectileColor: '#7ce8b0', speed: 20, interval: 2.6, keepDistance: 8 },
+    model: {
+      file: 'Skeleton_Mage.glb', height: 1.85,
+      clips: {
+        idle: 'Idle', walk: 'Walking_A', run: 'Running_A',
+        attack: 'Spellcast_Shoot', hit: 'Hit_A', death: 'Death_A'
+      },
+      kitProps: [{ file: 'staff.gltf', height: 1.5 }]
+    }
+  },
   // 왕도깨비 — 1장 필드 보스. 느리고 단단하며 패턴 2개를 번갈아 쓴다
   boss: {
     name: '왕도깨비',
@@ -615,7 +646,8 @@ class Monster {
 
 export class MonsterManager {
   constructor(scene, obstacles, shadow,
-    counts = { slime: 4, mushroom: 3, fox: 3, minion: 5, bone: 4, bandit: 3, caster: 3, boss: 1 }) {
+    counts = { slime: 3, mushroom: 2, fox: 3, minion: 4, bone: 3, boneRogue: 3, boneMage: 2,
+      bandit: 3, caster: 2, boss: 1 }) {
     this.obstacles = obstacles;
     this.list = [];
     for (const [type, n] of Object.entries(counts)) {

@@ -11,7 +11,7 @@ import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh, SWORD_TIP_Y, loadKitMesh } from './weapons.js';
 import { BladeTrail } from './blade_trail.js';
 import { recolorTexture } from './recolor.js';
-import { setHP, setMP, showCombo, flashHurt, showDamage } from '../ui/hud.js';
+import { setHP, setMP, showCombo, flashHurt, showDamage, setStamina } from '../ui/hud.js';
 import { hitstop, shake } from '../core/juice.js';
 import {
   weaponDamage, stats, attackSpeedMul, moveSpeedAttrMul, magicDamageMul, damageTakenMul
@@ -34,6 +34,15 @@ const DODGE_CD = 0.75;
 const BLOCK_REDUCTION = 0.25;   // 정면 피격 시 받는 피해 배율
 const BLOCK_MOVE_MUL = 0.42;
 const BLOCK_FRONT_DOT = 0.15;   // 이 값보다 정면이어야 막힌다
+// 기력 — 달리기·회피가 소모한다. 최대치는 레벨과 체력 스탯에 따라 늘어난다
+const STAMINA_BASE = 100;
+const STAMINA_PER_LEVEL = 6;
+const STAMINA_PER_VIT = 1.5;
+const RUN_DRAIN = 22;        // 초당
+const DODGE_COST = 25;
+const STAMINA_REGEN = 16;    // 초당
+const STAMINA_REGEN_DELAY = 0.7;
+const EXHAUST_LOCK = 1.1;    // 바닥나면 이만큼 달릴 수 없다
 const COMBO_WINDOW = 1.1;
 // 권법 5단 연계: 잽 → 되치기 → 훅(휘두르기) → 어퍼(도약) → 붕권(마무리)
 // 단계별로 클립·재생 구간·속도를 다르게 해서 모션을 구분한다
@@ -99,6 +108,10 @@ export class Player {
     this.nearbyMonsters = null;   // main 루프가 매 프레임 넣어준다
     this.wardT = 0;
     this.wardMul = 1;
+    this.maxStamina = STAMINA_BASE;
+    this.stamina = STAMINA_BASE;
+    this.staminaIdle = 0;
+    this.exhaustT = 0;
     this._dodgeDir = new Vector3(0, 0, 0);
     this.lockTimer = 0;
     this.punchClipDur = 0.85;
@@ -317,9 +330,24 @@ export class Player {
     return true;
   }
 
+  // 최대 기력 = 기본 + 레벨 + 체력 스탯 (stats가 갱신될 때 호출된다)
+  refreshStamina() {
+    const next = Math.round(
+      STAMINA_BASE + (stats.level - 1) * STAMINA_PER_LEVEL + stats.attrs.vit * STAMINA_PER_VIT
+    );
+    const gain = next - this.maxStamina;
+    this.maxStamina = next;
+    if (gain > 0) this.stamina = Math.min(next, this.stamina + gain);
+    this.stamina = Math.min(this.stamina, next);
+    setStamina(this.stamina, this.maxStamina, this.exhaustT > 0);
+  }
+
   // 회피 대시 — 이동 중이면 그 방향, 아니면 바라보는 방향으로 파고든다
   tryDodge(moveDir = null) {
     if (this.dodgeCd > 0 || this.dodgeT > 0 || this.dead) return false;
+    if (this.stamina < DODGE_COST) return false;
+    this.stamina -= DODGE_COST;
+    this.staminaIdle = 0;
     const d = this._dodgeDir;
     if (moveDir && moveDir.lengthSquared() > 0.001) {
       d.copyFrom(moveDir).normalize();
@@ -421,11 +449,7 @@ export class Player {
       sfx.punchHeavy();
       shake(0.3, 0.24);
       const origin = this.group.position;
-      if (this.vfx) {
-        this.vfx.shockwave(origin, { radius: s.radius, color: s.color, dur: 0.5 });
-        this.vfx.circle(origin, { radius: s.radius * 0.7, color: s.color, dur: 0.8 });
-        this.vfx.burst(origin, { size: 3.2, color: s.color, dur: 0.35 });
-      }
+      if (this.vfx) this.vfx.frostNova(origin, { radius: s.radius, color: s.color });
       for (const m of (this.pendingList || this.nearbyMonsters || [])) {
         if (m.dead) continue;
         const dx = m.group.position.x - origin.x;
@@ -497,7 +521,11 @@ export class Player {
       this.play('cast', true, 1.6);
       this.lockTimer = 0.45;
       sfx.shoot();
-      if (this.vfx) this.vfx.circle({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: s.duration });
+      if (this.vfx) {
+        // 시전 순간 마법진이 잠깐 돌고, 그 자리에 불바다가 남는다
+        this.vfx.circle({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: 0.9 });
+        this.vfx.fireField({ x: gx, z: gz }, { radius: s.radius, color: s.color, dur: s.duration });
+      }
       if (this.groundAreas) {
         this.groundAreas.push({
           x: gx, z: gz, radius: s.radius, damage, knock: s.knock, color: s.color,
@@ -541,7 +569,10 @@ export class Player {
       a.tick -= delta;
       if (a.tick <= 0) {
         a.tick = a.interval;
-        if (this.vfx) this.vfx.shockwave({ x: a.x, z: a.z }, { radius: a.radius, color: a.color, dur: 0.4 });
+        if (this.vfx) {
+          this.vfx.sparks({ x: a.x, y: 0, z: a.z },
+            { count: 8, color: a.color, power: 4.5, size: 0.26, spread: 'up' });
+        }
         for (const m of monsters) {
           if (m.dead) continue;
           const dx = m.group.position.x - a.x;
@@ -782,8 +813,15 @@ export class Player {
     }
 
     const moving = dir.lengthSquared() > 0;
-    const running = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
-    this.speedFov = moving && running && this.onGround ? 0.16 : 0;
+    // 기력이 있어야 달릴 수 있다. 바닥나면 잠시 달리기가 잠긴다
+    const wantRun = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
+    const running = wantRun && moving && this.exhaustT <= 0 && this.stamina > 0;
+    if (running) {
+      this.stamina = Math.max(0, this.stamina - RUN_DRAIN * delta);
+      this.staminaIdle = 0;
+      if (this.stamina <= 0) this.exhaustT = EXHAUST_LOCK;
+    }
+    this.speedFov = running && this.onGround ? 0.16 : 0;
 
     // 회피 대시 입력 (Space) — 대시 중에는 다른 이동을 받지 않는다
     if (input.consumeDodge && input.consumeDodge()) this.tryDodge(moving ? dir : null);
@@ -863,6 +901,15 @@ export class Player {
     this.magicCd = Math.max(0, this.magicCd - delta);
     this.dodgeCd = Math.max(0, this.dodgeCd - delta);
     this.iframe = Math.max(0, this.iframe - delta);
+    this.exhaustT = Math.max(0, this.exhaustT - delta);
+    // 잠깐 쉬면 기력이 차오른다
+    if (!running) {
+      this.staminaIdle += delta;
+      if (this.staminaIdle > STAMINA_REGEN_DELAY && this.stamina < this.maxStamina) {
+        this.stamina = Math.min(this.maxStamina, this.stamina + STAMINA_REGEN * delta);
+      }
+    }
+    setStamina(this.stamina, this.maxStamina, this.exhaustT > 0);
     if (this.spellCd) {
       for (const k of Object.keys(this.spellCd)) {
         this.spellCd[k] = Math.max(0, this.spellCd[k] - delta);

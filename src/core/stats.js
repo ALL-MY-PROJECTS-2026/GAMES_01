@@ -146,6 +146,8 @@ export function applyAttrEffects() {
   playerRef.maxMp = mpMax;
   playerRef.mp = Math.min(playerRef.mp, mpMax);
   setMP(Math.round(playerRef.mp), mpMax);
+  // 기력 최대치도 레벨·체력에 따라 늘어난다
+  if (playerRef.refreshStamina) playerRef.refreshStamina();
 }
 
 export function investStat(key) {
@@ -229,7 +231,11 @@ export function addXp(amount) {
   }
   if (leveled) {
     flashLevelUp(stats.level);
-    setMP(100, 100);
+    if (playerRef) {
+      playerRef.mp = playerRef.maxMp;
+      setMP(Math.round(playerRef.mp), playerRef.maxMp);
+      playerRef.stamina = playerRef.maxStamina;
+    }
     sfx.levelup();
   }
   refreshAll();

@@ -61,6 +61,8 @@
       transition: width 0.18s ease-out; }
     #hpfill { background: var(--hp); }
     #mpfill { background: var(--mp); }
+    #spfill { background: #6ecf8f; transition: width 0.1s linear; }
+    #spfill.empty { background: #a8563f; }
     #xpfill { background: var(--xp); }
     #comp1-hp { background: var(--mp); }
     #comp2-hp { background: #3d8d54; }
@@ -272,6 +274,7 @@
           <div class="pname" id="char-name"><b>이림</b> (Lv.1)</div>
           <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
           <div class="bar small"><div id="mpfill" class="fill"></div><div id="mptxt" class="txt"></div></div>
+          <div class="bar small"><div id="spfill" class="fill"></div><div id="sptxt" class="txt"></div></div>
           <div class="bar small"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
         </div>
       </div>

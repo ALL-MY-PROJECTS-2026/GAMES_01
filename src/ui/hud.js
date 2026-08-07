@@ -74,6 +74,16 @@ export function setMP(cur, max) {
   document.getElementById('mptxt').textContent = `MP ${cur} / ${max}`;
 }
 
+// 기력(달리기 자원) 바 — 비면 색이 바뀌어 회복 대기를 알린다
+export function setStamina(cur, max, exhausted = false) {
+  const el = document.getElementById('spfill');
+  if (!el) return;
+  el.style.width = `${Math.max(0, (cur / max) * 100)}%`;
+  el.classList.toggle('empty', exhausted);
+  const t = document.getElementById('sptxt');
+  if (t) t.textContent = `기력 ${Math.round(cur)} / ${max}`;
+}
+
 export function setPartyHP(idx, cur, max) {
   const fill = document.getElementById(`comp${idx}-hp`);
   const txt = document.getElementById(`comp${idx}-txt`);

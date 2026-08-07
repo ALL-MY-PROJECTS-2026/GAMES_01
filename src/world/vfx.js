@@ -1,6 +1,10 @@
 import {
-  MeshBuilder, StandardMaterial, Color3, Engine, Mesh
+  MeshBuilder, StandardMaterial, Color3, Color4, Engine, Mesh, ParticleSystem, Vector3
 } from '@babylonjs/core';
+import {
+  makeRuneTexture, makeGlowTexture, makeSparkTexture, makeSlashTexture, makeNoiseTexture,
+  makeShockRingTexture, makeFireFieldTexture
+} from './vfx_textures.js';
 
 // 마법·타격 이펙트 (STACK.md §9)
 // 규칙: 라이팅 계산 금지 · 깊이 쓰기 끔 · 오브젝트 풀링 · 동시 개수 상한 · 고정 스텝 시계 사용
@@ -40,12 +44,49 @@ export class VFX {
     this.scene = scene;
     this.live = [];   // { mesh, pool, t, dur, kind, ...}
 
+    // 절차적 텍스처 — 단색 도형만으로는 밋밋해서 문양·감쇠를 입힌다
+    this.tex = {
+      rune: makeRuneTexture(scene),
+      glow: makeGlowTexture(scene),
+      spark: makeSparkTexture(scene),
+      slash: makeSlashTexture(scene),
+      noise: makeNoiseTexture(scene),
+      shockRing: makeShockRingTexture(scene),
+      fireField: makeFireFieldTexture(scene)
+    };
+
+    // 지염장 — 머무는 불바다 (얼룩 텍스처, 느리게 회전)
+    this.fieldPool = new Pool(scene, (s) => {
+      const f = MeshBuilder.CreateDisc('vfxField', { radius: 1, tessellation: 40 }, s);
+      f.rotation.x = Math.PI / 2;
+      f.isPickable = false;
+      f.applyFog = false;
+      f.material = vfxMaterial(s, 'field' + Math.random(), '#ffffff');
+      f.material.emissiveTexture = this.tex.fireField;
+      f.material.opacityTexture = this.tex.fireField;
+      f.setEnabled(false);
+      return f;
+    });
+    // 빙백진 — 날카롭게 퍼지는 얼음 파문
+    this.novaPool = new Pool(scene, (s) => {
+      const n = MeshBuilder.CreateDisc('vfxNova', { radius: 1, tessellation: 48 }, s);
+      n.rotation.x = Math.PI / 2;
+      n.isPickable = false;
+      n.applyFog = false;
+      n.material = vfxMaterial(s, 'nova' + Math.random(), '#ffffff');
+      n.material.emissiveTexture = this.tex.shockRing;
+      n.material.opacityTexture = this.tex.shockRing;
+      n.setEnabled(false);
+      return n;
+    });
     this.discPool = new Pool(scene, (s) => {
       const d = MeshBuilder.CreateDisc('vfxDisc', { radius: 1, tessellation: 40 }, s);
       d.rotation.x = Math.PI / 2;
       d.isPickable = false;
       d.applyFog = false;
       d.material = vfxMaterial(s, 'disc' + Math.random(), '#ffffff');
+      d.material.emissiveTexture = this.tex.slash;
+      d.material.opacityTexture = this.tex.slash;
       d.setEnabled(false);
       return d;
     });
@@ -55,6 +96,8 @@ export class VFX {
       r.isPickable = false;
       r.applyFog = false;
       r.material = vfxMaterial(s, 'ring' + Math.random(), '#ffffff');
+      r.material.emissiveTexture = this.tex.rune;
+      r.material.opacityTexture = this.tex.rune;
       r.setEnabled(false);
       return r;
     });
@@ -65,6 +108,8 @@ export class VFX {
       sp.isPickable = false;
       sp.applyFog = false;
       sp.material = vfxMaterial(s, 'aura' + Math.random(), '#ffffff');
+      sp.material.emissiveTexture = this.tex.noise;
+      sp.material.opacityTexture = this.tex.noise;
       sp.setEnabled(false);
       return sp;
     });
@@ -82,10 +127,55 @@ export class VFX {
       p.isPickable = false;
       p.applyFog = false;
       p.material = vfxMaterial(s, 'puff' + Math.random(), '#ffffff');
+      p.material.emissiveTexture = this.tex.glow;
+      p.material.opacityTexture = this.tex.glow;
       p.setEnabled(false);
       return p;
     });
 
+  }
+
+  /** 불티 — 타격·폭발에 흩날리는 파편. 엔진 내장 파티클을 풀로 돌린다 */
+  sparks(pos, { count = 18, color = '#ffd23e', power = 4, size = 0.28, spread = 'burst' } = {}) {
+    let ps = this.sparkFree && this.sparkFree.pop();
+    if (!ps) {
+      ps = new ParticleSystem('vfxSparks', 60, this.scene);
+      ps.particleTexture = this.tex.spark;
+      ps.blendMode = ParticleSystem.BLENDMODE_ADD;
+      ps.minLifeTime = 0.18;
+      ps.maxLifeTime = 0.42;
+      ps.gravity = new Vector3(0, -14, 0);
+      ps.minAngularSpeed = -6;
+      ps.maxAngularSpeed = 6;
+      ps.emitter = new Vector3(0, 0, 0);
+    }
+    const c = Color3.FromHexString(color);
+    ps.color1 = new Color4(c.r, c.g, c.b, 1);
+    ps.color2 = new Color4(1, 1, 1, 0.9);
+    ps.colorDead = new Color4(c.r, c.g, c.b, 0);
+    ps.minSize = size * 0.5;
+    ps.maxSize = size;
+    ps.minEmitPower = power * 0.5;
+    ps.maxEmitPower = power;
+    // 흩어지는 방향 — 불티는 위로, 얼음 파편은 낮고 넓게
+    if (spread === 'up') {
+      ps.direction1 = new Vector3(-0.25, 1.2, -0.25);
+      ps.direction2 = new Vector3(0.25, 2.2, 0.25);
+      ps.gravity = new Vector3(0, -3, 0);
+    } else if (spread === 'flat') {
+      ps.direction1 = new Vector3(-1, 0.05, -1);
+      ps.direction2 = new Vector3(1, 0.35, 1);
+      ps.gravity = new Vector3(0, -8, 0);
+    } else {
+      ps.direction1 = new Vector3(-1, 0.4, -1);
+      ps.direction2 = new Vector3(1, 1.4, 1);
+      ps.gravity = new Vector3(0, -14, 0);
+    }
+    ps.emitter = new Vector3(pos.x, (pos.y || 0) + 0.9, pos.z);
+    ps.manualEmitCount = count;
+    ps.start();
+    this.sparkBusy = this.sparkBusy || [];
+    this.sparkBusy.push({ ps, t: 0.7 });
   }
 
   // 알파를 개별로 애니메이션하므로 머티리얼은 메시마다 전용이어야 한다
@@ -154,6 +244,29 @@ export class VFX {
     return mesh;
   }
 
+  /** 지염장 — 지속되는 불바다. 바닥이 일렁이고 불티가 계속 피어오른다 */
+  fireField(pos, { radius = 4, color = '#ff8a3a', dur = 3.2 } = {}) {
+    const mesh = this.fieldPool.take();
+    this._tint(mesh, color);
+    mesh.position.set(pos.x, 0.05, pos.z);
+    mesh.scaling.setAll(radius * 0.3);
+    this._push({
+      mesh, pool: this.fieldPool, t: 0, dur, kind: 'field',
+      base: radius, color, emberT: 0, pos: { x: pos.x, z: pos.z }
+    });
+  }
+
+  /** 빙백진 — 한 번에 확 퍼지는 서릿발 파문 */
+  frostNova(pos, { radius = 5.5, color = '#9fe4ff', dur = 0.55 } = {}) {
+    const mesh = this.novaPool.take();
+    this._tint(mesh, color);
+    mesh.position.set(pos.x, 0.07, pos.z);
+    mesh.scaling.setAll(radius * 0.15);
+    this._push({ mesh, pool: this.novaPool, t: 0, dur, kind: 'nova', base: radius });
+    // 얼음 파편이 낮게 사방으로 흩어진다
+    this.sparks(pos, { count: 30, color, power: 11, size: 0.34, spread: 'flat' });
+  }
+
   /** 연쇄 번개 — 두 지점을 잇는 얇은 기둥 */
   beam(from, to, { width = 0.18, color = '#a9d4ff', dur = 0.22 } = {}) {
     const mesh = this.beamPool.take();
@@ -168,6 +281,19 @@ export class VFX {
   }
 
   update(delta) {
+    // 다 쓴 파티클 시스템 회수
+    if (this.sparkBusy) {
+      this.sparkFree = this.sparkFree || [];
+      for (let i = this.sparkBusy.length - 1; i >= 0; i--) {
+        const b = this.sparkBusy[i];
+        b.t -= delta;
+        if (b.t <= 0) {
+          b.ps.stop();
+          this.sparkFree.push(b.ps);
+          this.sparkBusy.splice(i, 1);
+        }
+      }
+    }
     for (let i = this.live.length - 1; i >= 0; i--) {
       const e = this.live[i];
       e.t += delta;
@@ -195,6 +321,29 @@ export class VFX {
         const pulse = 1 + Math.sin(e.t * 6) * 0.045;
         e.mesh.scaling.setAll(e.base * pulse);
         e.mesh.material.alpha = 0.3 * (p > 0.85 ? (1 - p) / 0.15 : 1);
+      } else if (e.kind === 'field') {
+        // 천천히 회전하며 불규칙하게 일렁인다
+        e.mesh.rotation.y += 0.5 * delta;
+        const grow = Math.min(1, p * 5);
+        const flick = 1 + Math.sin(e.t * 11) * 0.05 + Math.sin(e.t * 6.7) * 0.03;
+        e.mesh.scaling.setAll(e.base * (0.3 + 0.7 * grow) * flick);
+        e.mesh.material.alpha = (p > 0.8 ? (1 - p) / 0.2 : 0.85) * (0.85 + Math.sin(e.t * 9) * 0.15);
+        // 불티가 계속 피어오른다
+        e.emberT -= delta;
+        if (e.emberT <= 0) {
+          e.emberT = 0.22;
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random()) * e.base * 0.85;
+          this.sparks(
+            { x: e.pos.x + Math.cos(a) * rr, y: 0, z: e.pos.z + Math.sin(a) * rr },
+            { count: 5, color: e.color, power: 3.2, size: 0.22, spread: 'up' }
+          );
+        }
+      } else if (e.kind === 'nova') {
+        // 빠르게 튀어나갔다가 급히 옅어진다
+        const ease = 1 - Math.pow(1 - p, 3);
+        e.mesh.scaling.setAll(e.base * (0.15 + 0.95 * ease));
+        e.mesh.material.alpha = Math.pow(1 - p, 1.6);
       } else if (e.kind === 'beam') {
         e.mesh.material.alpha = 1 - p;
       }
