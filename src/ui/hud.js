@@ -111,7 +111,7 @@ export function setSkillPoints(n) {
 
 export function flashLevelUp(level) {
   const el = document.getElementById('levelup');
-  el.innerHTML = `LEVEL UP!  Lv.${level}<div class="lvup-sub">스킬 포인트 +1 — K 키로 배분</div>`;
+  el.innerHTML = `LEVEL UP!  Lv.${level}<div class="lvup-sub">스탯 +3 · 스킬 +1 — K 키로 배분</div>`;
   el.classList.remove('show');
   void el.offsetWidth;
   el.classList.add('show');

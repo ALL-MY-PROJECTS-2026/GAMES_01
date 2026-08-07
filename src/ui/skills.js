@@ -1,5 +1,5 @@
 import { SKILL_TREES } from '../core/skills.js';
-import { stats, learnSkill } from '../core/stats.js';
+import { stats, learnSkill, investStat, ATTR_DEFS, ATTR_MAX } from '../core/stats.js';
 
 let open = false;
 
@@ -28,9 +28,34 @@ export function toggleSkills() {
 }
 
 export function renderSkills() {
-  document.getElementById('skill-points').textContent = `스킬 포인트 ${stats.skillPoints}`;
+  document.getElementById('skill-points').textContent =
+    `스탯 포인트 ${stats.statPoints} · 스킬 포인트 ${stats.skillPoints}`;
   const box = document.getElementById('skill-trees');
   box.innerHTML = '';
+
+  // 스탯 배분 섹션 (레벨업당 +3)
+  const shead = document.createElement('div');
+  shead.className = 'skill-tree-head';
+  shead.textContent = '📊 스탯';
+  box.appendChild(shead);
+  for (const a of ATTR_DEFS) {
+    const v = stats.attrs[a.key] || 0;
+    const row = document.createElement('div');
+    row.className = 'skill-row';
+    row.innerHTML = `
+      <div class="skill-info">
+        <span class="skill-icon">${a.icon}</span>
+        <span class="skill-name">${a.name} <b class="skill-pips">${v}</b></span>
+        <span class="skill-desc">${a.info}</span>
+      </div>
+      <div class="skill-action">
+        ${v >= ATTR_MAX
+          ? '<span class="skill-max">MAX</span>'
+          : `<button class="skill-btn" data-attr="${a.key}" ${stats.statPoints > 0 ? '' : 'disabled'}>+1</button>`}
+      </div>`;
+    box.appendChild(row);
+  }
+
   for (const [treeKey, tree] of Object.entries(SKILL_TREES)) {
     const head = document.createElement('div');
     head.className = 'skill-tree-head';
@@ -57,7 +82,8 @@ export function renderSkills() {
   }
   box.querySelectorAll('.skill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      learnSkill(btn.dataset.skill);
+      if (btn.dataset.attr) investStat(btn.dataset.attr);
+      else learnSkill(btn.dataset.skill);
       renderSkills();
     });
   });

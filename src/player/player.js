@@ -11,7 +11,9 @@ import { WORLD_HALF, resolveCollision } from '../world/ground.js';
 import { WEAPONS, makeSwordMesh, makeGunMesh } from './weapons.js';
 import { setHP, setMP, showCombo, flashHurt } from '../ui/hud.js';
 import { hitstop, shake } from '../core/juice.js';
-import { weaponDamage, stats } from '../core/stats.js';
+import {
+  weaponDamage, stats, attackSpeedMul, moveSpeedAttrMul, magicDamageMul, damageTakenMul
+} from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
 import { sfx } from '../core/sfx.js';
@@ -200,6 +202,8 @@ export class Player {
   }
 
   takeDamage(amount, dir = null) {
+    // 체력(VIT) 스탯: 받는 피해 감소 (최소 1)
+    amount = Math.max(1, Math.round(amount * damageTakenMul()));
     this.hp = Math.max(0, this.hp - amount);
     setHP(this.hp, this.maxHp);
     flashHurt();
@@ -248,7 +252,7 @@ export class Player {
     origin.y += 1.15;
     origin.x += face.x * 0.6;
     origin.z += face.z * 0.6;
-    const damage = Math.round((14 + stats.level * 2) * this.charCfg.magicMul);
+    const damage = Math.round((14 + stats.level * 2) * this.charCfg.magicMul * magicDamageMul());
     this.projectiles.spawn(origin, face.clone(), damage, 7, '#7fb0ff');
     return true;
   }
@@ -263,7 +267,8 @@ export class Player {
     if (!input.consumeAttack()) return;
 
     const w = applyWeaponSkills(WEAPONS[this.weapon], this.weapon, stats.skills);
-    this.attackCd = w.cd;
+    const aspd = attackSpeedMul(); // 민첩: 공격 속도
+    this.attackCd = w.cd / aspd;
 
     if (facePoint) {
       this.group.rotation.y = Math.atan2(
@@ -312,9 +317,9 @@ export class Player {
       const fromFrac = a.fromFrac || 0;
       const toFrac = a.toFrac !== undefined ? a.toFrac : 1;
       const clipDur = (this.clipDur && this.clipDur[a.name]) || this.punchClipDur;
-      const sliceDur = clipDur * (toFrac - fromFrac) / a.speed;
+      const sliceDur = clipDur * (toFrac - fromFrac) / (a.speed * aspd);
 
-      this.attackCd = st.cd;
+      this.attackCd = st.cd / aspd;
       this.lockTimer = sliceDur;
       this.currentLunge = st.lunge;
       this.lungeUntil = this.lockTimer - 0.25;
@@ -327,17 +332,18 @@ export class Player {
         knockUp: st.knockUp || 0
       };
       this.pendingWeaponKey = this.weapon;
-      this.play(a.name, true, a.speed, fromFrac, toFrac);
+      this.play(a.name, true, a.speed * aspd, fromFrac, toFrac);
       if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {
-      this.lockTimer = this.punchClipDur / w.animScale;
+      this.lockTimer = this.punchClipDur / (w.animScale * aspd);
       this.currentLunge = w.lunge;
       this.lungeUntil = this.lockTimer - 0.25;
-      this.pendingHit = w.hitDelay;
+      this.pendingHit = w.hitDelay / aspd;
       this.pendingList = monsters;
       this.pendingWeapon = w;
       this.pendingWeaponKey = this.weapon;
+      this.play('Punch', true, w.animScale * aspd);
       sfx.swing();
     }
   }
@@ -424,7 +430,9 @@ export class Player {
     if (moving) {
       dir.normalize();
       const run = running ? 2.1 : 1;
-      move.copyFrom(dir).scaleInPlace(this.walkSpeed * moveSpeedMul(stats.skills) * run * delta);
+      move.copyFrom(dir).scaleInPlace(
+        this.walkSpeed * moveSpeedMul(stats.skills) * moveSpeedAttrMul() * run * delta
+      );
       if (this.lockTimer > 0) move.scaleInPlace(0.45);
 
       if (this.lockTimer <= 0) {
