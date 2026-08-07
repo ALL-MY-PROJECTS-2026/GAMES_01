@@ -3,117 +3,188 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>퇴마전설풍: 귀곡의 초원 (dev)</title>
+  <title>귀곡의 초원</title>
   <style>
+    /* 플랫 로우폴리 아트에 맞춘 미니멀 UI — 어두운 반투명 패널 + 앰버 액센트 */
+    :root {
+      --panel: rgba(17, 20, 27, 0.78);
+      --edge: rgba(255, 255, 255, 0.10);
+      --edge-strong: rgba(255, 255, 255, 0.22);
+      --text: #eef1f5;
+      --muted: #9aa3b0;
+      --accent: #ffb03a;
+      --hp: #e2503f;
+      --mp: #4f7ee8;
+      --xp: #ffb03a;
+      --radius: 10px;
+    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: 'Malgun Gothic', 'Segoe UI', sans-serif; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12;
+      font-family: 'Pretendard', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', sans-serif; }
     #app { position: fixed; inset: 0; }
     canvas { display: block; }
 
-    #hud { position: fixed; inset: 0; pointer-events: none; color: #e8dcc4; }
-    .panel { background: rgba(16, 18, 30, 0.85); border: 2px solid #c9a86a; border-radius: 10px; }
+    #hud { position: fixed; inset: 0; pointer-events: none; color: var(--text);
+      font-size: 13px; letter-spacing: -0.01em; }
+    .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--radius);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); }
 
-    #party { position: absolute; top: 14px; left: 14px; padding: 10px 12px; min-width: 250px; }
-    .prow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-    .prow:last-child { margin-bottom: 0; }
-    .portrait { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #c9a86a; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; flex: none; }
-    .p-ilim { background: #7a3b2e; color: #ffd9c4; }
-    .p-kusa { background: #2e3f7a; color: #c4d4ff; }
-    .p-rening { background: #2e6a3f; color: #c8f0c4; }
+    /* ── 좌상단 캐릭터 상태 ── */
+    #party { position: absolute; top: 16px; left: 16px; padding: 12px; min-width: 236px; }
+    .prow { display: flex; align-items: center; gap: 10px; }
+    .portrait { width: 40px; height: 40px; border-radius: 10px; flex: none;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 16px; border: 1px solid var(--edge-strong); }
+    .p-ilim { background: linear-gradient(150deg, #b3413a, #6d2320); color: #ffe4dd; }
+    .p-kusa { background: linear-gradient(150deg, #3f5bb0, #24356e); color: #dee6ff; }
+    .p-rening { background: linear-gradient(150deg, #3d8d54, #205033); color: #ddf4e3; }
     .pinfo { flex: 1; min-width: 0; }
-    .pname { font-size: 12px; margin-bottom: 3px; color: #e8dcc4; }
-    .pname b { color: #c9a86a; }
-    .bar { position: relative; height: 12px; border-radius: 6px; background: #2a2c3a; border: 1px solid #55492e; overflow: hidden; }
-    .bar.small { height: 8px; margin-top: 3px; }
-    .bar .fill { position: absolute; top: 0; left: 0; bottom: 0; width: 100%; transition: width 0.2s; }
-    #hpfill { background: linear-gradient(#e05a4e, #a02c22); }
-    #mpfill { background: linear-gradient(#7f8ae8, #4238a8); }
-    #comp1-hp { background: linear-gradient(#5a8ae0, #2c50a0); }
-    #comp2-hp { background: linear-gradient(#5ac07a, #2c7a46); }
-    #xpfill { background: linear-gradient(#e8c25f, #a8821f); }
-    .bar .txt { position: absolute; inset: 0; font-size: 9px; line-height: 12px; text-align: center; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.7); }
-    #gold-row { margin-top: 8px; font-size: 12px; color: #c9a86a; }
-    #gold-row .coin { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #e8b939; border: 1px solid #a97c14; margin-right: 3px; vertical-align: -1px; }
-    #gold-row .invkey { display: inline-block; border: 1px solid #c9a86a; border-radius: 4px; padding: 0 4px; font-size: 10px; margin-left: 6px; color: #e8dcc4; }
+    .pname { font-size: 12px; margin-bottom: 5px; color: var(--muted); }
+    .pname b { color: var(--text); font-size: 13px; }
 
-    #hint { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); font-size: 12px; padding: 6px 14px; color: #b8a888; }
+    .bar { position: relative; height: 9px; border-radius: 5px; overflow: hidden;
+      background: rgba(255, 255, 255, 0.08); margin-bottom: 4px; }
+    .bar:last-child { margin-bottom: 0; }
+    .bar.small { height: 5px; }
+    .bar .fill { position: absolute; inset: 0 auto 0 0; width: 100%; border-radius: 5px;
+      transition: width 0.18s ease-out; }
+    #hpfill { background: var(--hp); }
+    #mpfill { background: var(--mp); }
+    #xpfill { background: var(--xp); }
+    #comp1-hp { background: var(--mp); }
+    #comp2-hp { background: #3d8d54; }
+    .bar .txt { position: absolute; inset: 0; font-size: 8px; line-height: 9px; text-align: center;
+      color: rgba(255, 255, 255, 0.85); font-weight: 600; }
+    .bar.small .txt { display: none; }
 
-    #quickbar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 8px; }
-    .slot { width: 44px; height: 44px; border: 2px solid #6a5c3a; border-radius: 8px; background: rgba(30, 32, 48, 0.8); position: relative; }
-    .slot span { position: absolute; top: 2px; left: 5px; font-size: 11px; color: #c9a86a; z-index: 1; }
-    .slot.active { border-color: #e8c25f; background: rgba(60, 52, 28, 0.9); box-shadow: 0 0 8px rgba(232, 194, 95, 0.5); }
-    .slot-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-    .slot-count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; font-weight: 600; color: #e8dcc4; }
-    .slot-plus { position: absolute; right: 3px; top: 1px; font-size: 10px; font-weight: 700; color: #e8c25f; z-index: 1; }
+    #gold-row { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--edge);
+      font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    #gold-amount { color: var(--accent); font-weight: 700; }
+    .invkey { display: inline-flex; align-items: center; justify-content: center;
+      min-width: 17px; height: 17px; padding: 0 4px; border-radius: 4px;
+      background: rgba(255, 255, 255, 0.10); color: var(--text);
+      font-size: 10px; font-weight: 700; }
+    #skill-pts { color: var(--accent); font-weight: 700; }
 
-    #minimap-frame { position: absolute; right: 10px; bottom: 10px; width: 200px; height: 200px; border: 3px solid #c9a86a; border-radius: 12px; box-shadow: 0 0 0 3px rgba(16, 18, 30, 0.85); }
-    #minimap-frame .label { position: absolute; top: -26px; right: 0; font-size: 12px; background: rgba(16, 18, 30, 0.85); border: 1px solid #c9a86a; border-radius: 6px; padding: 1px 8px; color: #c9a86a; }
+    /* ── 상단 조작 안내 ── */
+    #hint { position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+      font-size: 11.5px; padding: 8px 14px; color: var(--muted); max-width: 60vw; text-align: center; }
 
-    #talk-hint { display: none; position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 6px 16px; color: #c9a86a; }
-    #talk-hint b { color: #e8c25f; }
-    #dialog { display: none; position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%); width: 520px; max-width: 90vw; padding: 14px 18px 12px; pointer-events: auto; cursor: pointer; }
-    #dialog-name { font-weight: 600; font-size: 14px; color: #e8c25f; margin-bottom: 6px; }
-    #dialog-text { font-size: 14px; line-height: 1.55; min-height: 44px; color: #e8dcc4; }
-    #dialog-next { font-size: 11px; color: #8a7a55; text-align: right; margin-top: 6px; }
+    /* ── 하단 퀵바 ── */
+    #quickbar { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 7px; padding: 9px; }
+    .slot { width: 46px; height: 46px; border-radius: 9px; position: relative;
+      background: rgba(255, 255, 255, 0.05); border: 1px solid var(--edge);
+      transition: border-color 0.12s, background 0.12s; }
+    .slot span { position: absolute; top: 3px; left: 6px; font-size: 10px;
+      color: var(--muted); font-weight: 600; z-index: 1; }
+    .slot.active { border-color: var(--accent); background: rgba(255, 176, 58, 0.16);
+      box-shadow: 0 0 0 1px rgba(255, 176, 58, 0.35); }
+    .slot-icon { position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 21px; }
+    .slot-count { position: absolute; right: 5px; bottom: 3px; font-size: 11px;
+      font-weight: 700; color: var(--text); }
+    .slot-plus { position: absolute; right: 5px; top: 3px; font-size: 10px;
+      font-weight: 700; color: var(--accent); z-index: 1; }
 
-    #shop { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 380px; max-width: 92vw; padding: 14px 16px; pointer-events: auto; }
-    .shop-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: #e8c25f; }
-    #shop-close { border: 1px solid #c9a86a; background: transparent; border-radius: 6px; cursor: pointer; color: #c9a86a; font-size: 12px; padding: 2px 8px; }
-    .shop-wallet { font-size: 13px; color: #b8a888; margin-bottom: 8px; }
-    .shop-sellbtn { width: 100%; border: 1.5px solid #c9a86a; background: rgba(60, 52, 28, 0.6); border-radius: 8px; padding: 7px; cursor: pointer; font-size: 13px; color: #e8dcc4; margin-bottom: 10px; }
-    .shop-sellbtn:disabled { opacity: 0.5; cursor: default; }
-    .shop-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 8px 10px; margin-bottom: 6px; }
-    .shop-w { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-    .shop-icon { font-size: 20px; }
-    .shop-name b { color: #e8c25f; }
-    .shop-dmg { color: #b8a888; font-size: 12px; }
-    .shop-action { display: flex; align-items: center; gap: 8px; }
-    .shop-cost { font-size: 12px; color: #c9a86a; }
-    .shop-btn { border: 1.5px solid #c9a86a; background: #4a3f22; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #e8dcc4; }
-    .shop-btn:disabled { opacity: 0.45; cursor: default; }
-    .shop-max { font-size: 12px; font-weight: 700; color: #e8c25f; }
-    .shop-hint { font-size: 11px; color: #8a7a55; text-align: center; margin-top: 4px; }
+    /* ── 미니맵 ── */
+    #minimap-frame { position: absolute; right: 16px; bottom: 16px; width: 176px; height: 176px;
+      border: 1px solid var(--edge); border-radius: var(--radius); overflow: hidden;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); }
+    #minimap-frame .label { position: absolute; top: 8px; left: 10px; font-size: 10px;
+      color: rgba(255, 255, 255, 0.75); font-weight: 600; letter-spacing: 0.04em;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); z-index: 1; }
 
-    #levelup { position: absolute; top: 30%; left: 50%; transform: translateX(-50%); font-size: 34px; font-weight: 700; color: #e8c25f; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); opacity: 0; pointer-events: none; text-align: center; }
+    /* ── 대화 ── */
+    #talk-hint { display: none; position: absolute; bottom: 84px; left: 50%;
+      transform: translateX(-50%); font-size: 12px; padding: 7px 14px; color: var(--muted); }
+    #talk-hint b { color: var(--accent); }
+    #dialog { display: none; position: absolute; bottom: 84px; left: 50%; transform: translateX(-50%);
+      width: 540px; max-width: 90vw; padding: 16px 18px 13px; pointer-events: auto; cursor: pointer; }
+    #dialog-name { font-weight: 700; font-size: 13px; color: var(--accent); margin-bottom: 7px; }
+    #dialog-text { font-size: 14px; line-height: 1.6; min-height: 44px; }
+    #dialog-next { font-size: 11px; color: var(--muted); text-align: right; margin-top: 7px; }
+
+    /* ── 공용 창(상점/수련/인벤토리) ── */
+    #shop, #skillwin, #inventory { display: none; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); pointer-events: auto; padding: 16px 18px; }
+    #shop { width: 400px; max-width: 92vw; }
+    #skillwin { width: 440px; max-width: 92vw; max-height: 82vh; overflow-y: auto; }
+    #inventory { width: 320px; }
+    .win-title, .shop-title, .skill-title, .inv-title { display: flex; justify-content: space-between;
+      align-items: center; font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+    #shop-close, #skill-close { border: 1px solid var(--edge-strong); background: transparent;
+      border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 12px;
+      width: 24px; height: 24px; line-height: 1; }
+    #shop-close:hover, #skill-close:hover { color: var(--text); border-color: var(--text); }
+    .shop-wallet { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .shop-sellbtn { width: 100%; border: 1px solid var(--edge-strong); background: rgba(255,255,255,0.06);
+      border-radius: 8px; padding: 9px; cursor: pointer; font-size: 13px; color: var(--text);
+      margin-bottom: 12px; font-family: inherit; }
+    .shop-sellbtn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+    .shop-sellbtn:disabled { opacity: 0.4; cursor: default; }
+
+    .shop-row, .skill-row, .inv-item { border: 1px solid var(--edge); border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04); }
+    .shop-row, .skill-row { display: flex; justify-content: space-between; align-items: center;
+      padding: 9px 11px; margin-bottom: 6px; }
+    .shop-w, .skill-info { display: flex; align-items: center; gap: 9px; font-size: 13px; flex-wrap: wrap; }
+    .shop-icon, .skill-icon { font-size: 19px; }
+    .shop-name b, .skill-pips { color: var(--accent); }
+    .skill-pips { letter-spacing: 2px; font-size: 12px; }
+    .shop-dmg, .skill-desc { color: var(--muted); font-size: 11.5px; }
+    .skill-desc { width: 100%; margin-left: 28px; }
+    .shop-action { display: flex; align-items: center; gap: 9px; }
+    .shop-cost { font-size: 11.5px; color: var(--muted); }
+    .shop-btn, .skill-btn { border: 1px solid var(--accent); background: rgba(255, 176, 58, 0.16);
+      border-radius: 7px; padding: 5px 13px; cursor: pointer; font-size: 12.5px;
+      color: var(--text); font-family: inherit; font-weight: 600; }
+    .shop-btn:hover:not(:disabled), .skill-btn:hover:not(:disabled) { background: rgba(255, 176, 58, 0.3); }
+    .shop-btn:disabled, .skill-btn:disabled { opacity: 0.35; cursor: default;
+      border-color: var(--edge-strong); background: transparent; }
+    .shop-max, .skill-max { font-size: 11.5px; font-weight: 700; color: var(--accent); }
+    .shop-hint, .inv-hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px; }
+    #skill-points { font-size: 12.5px; color: var(--accent); font-weight: 700; margin-bottom: 12px; }
+    .skill-tree-head { font-size: 11px; font-weight: 700; color: var(--muted); margin: 14px 0 7px;
+      text-transform: uppercase; letter-spacing: 0.07em; }
+    .skill-tree-head:first-child { margin-top: 0; }
+    .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .inv-item { padding: 11px; text-align: center; font-size: 12px; }
+    .inv-icon { font-size: 25px; }
+    .inv-name { margin: 5px 0 2px; }
+
+    /* ── 전투 피드백 ── */
+    #levelup { position: absolute; top: 28%; left: 50%; transform: translateX(-50%);
+      font-size: 32px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em;
+      text-shadow: 0 3px 16px rgba(0, 0, 0, 0.85); opacity: 0; pointer-events: none; text-align: center; }
+    #levelup.show { animation: lvup 2.2s ease-out forwards; }
+    @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.7); }
+      15% { opacity: 1; transform: translateX(-50%) scale(1.12); }
+      30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+    .lvup-sub { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 6px; }
+
     #dmg-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-    .dmgnum { position: absolute; transform: translate(-50%, -50%); font-size: 19px; font-weight: 700; color: #ff5a4a; text-shadow: 0 2px 4px rgba(0,0,0,0.95), 0 0 6px rgba(0,0,0,0.8); animation: dmgFloat 0.8s ease-out forwards; }
-    .dmgnum.crit { font-size: 27px; color: #ffd23e; }
-    @keyframes dmgFloat { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); } 18% { opacity: 1; transform: translate(-50%, -80%) scale(1.15); } 100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
-    #hitflash { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(200, 30, 20, 0.5) 100%); }
+    .dmgnum { position: absolute; transform: translate(-50%, -50%); font-size: 18px; font-weight: 800;
+      color: #ff6b57; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95);
+      animation: dmgFloat 0.8s ease-out forwards; }
+    .dmgnum.crit { font-size: 26px; color: var(--accent); }
+    @keyframes dmgFloat { 0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+      18% { opacity: 1; transform: translate(-50%, -80%) scale(1.15); }
+      100% { opacity: 0; transform: translate(-50%, -160%) scale(1); } }
+
+    #hitflash { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+      background: radial-gradient(ellipse at center, transparent 52%, rgba(200, 40, 30, 0.5) 100%); }
     #hitflash.show { animation: hurtflash 0.35s ease-out; }
     @keyframes hurtflash { 0% { opacity: 1; } 100% { opacity: 0; } }
-    #combo { display: none; position: absolute; top: 38%; right: 18%; font-size: 26px; font-weight: 700; color: #ffd23e; text-shadow: 0 2px 8px rgba(0,0,0,0.85); pointer-events: none; }
-    #combo.finisher { font-size: 34px; color: #ff7a4e; }
+
+    #combo { display: none; position: absolute; top: 36%; right: 16%; font-size: 24px;
+      font-weight: 800; color: var(--accent); text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+      pointer-events: none; letter-spacing: -0.02em; }
+    #combo.finisher { font-size: 32px; color: #ff7a4e; }
     #combo.pop { animation: comboPop 0.25s ease-out; }
-    @keyframes comboPop { 0% { transform: scale(0.6); opacity: 0.4; } 60% { transform: scale(1.25); opacity: 1; } 100% { transform: scale(1); } }
-    .lvup-sub { font-size: 14px; font-weight: 600; color: #e8dcc4; margin-top: 4px; }
-
-    #skillwin { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 420px; max-width: 92vw; max-height: 80vh; overflow-y: auto; padding: 14px 16px; pointer-events: auto; }
-    .skill-title { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: #e8c25f; }
-    #skill-close { border: 1px solid #c9a86a; background: transparent; border-radius: 6px; cursor: pointer; color: #c9a86a; font-size: 12px; padding: 2px 8px; }
-    #skill-points { font-size: 13px; color: #c9a86a; margin-bottom: 8px; font-weight: 700; }
-    .skill-tree-head { font-size: 13px; font-weight: 700; color: #e8c25f; margin: 10px 0 5px; border-bottom: 1px solid #55492e; padding-bottom: 3px; }
-    .skill-tree-head:first-child { margin-top: 0; }
-    .skill-row { display: flex; justify-content: space-between; align-items: center; border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 7px 10px; margin-bottom: 5px; }
-    .skill-info { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
-    .skill-icon { font-size: 18px; }
-    .skill-pips { color: #e8c25f; letter-spacing: 2px; }
-    .skill-desc { color: #b8a888; font-size: 11px; width: 100%; margin-left: 26px; }
-    .skill-btn { border: 1.5px solid #c9a86a; background: #4a3f22; border-radius: 7px; padding: 4px 12px; cursor: pointer; font-size: 13px; color: #e8dcc4; }
-    .skill-btn:disabled { opacity: 0.45; cursor: default; }
-    .skill-max { font-size: 12px; font-weight: 700; color: #e8c25f; }
-    #skill-pts { color: #e8c25f; font-weight: 700; }
-    #levelup.show { animation: lvup 2.2s ease-out forwards; }
-    @keyframes lvup { 0% { opacity: 0; transform: translateX(-50%) scale(0.6); } 15% { opacity: 1; transform: translateX(-50%) scale(1.15); } 30% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
-
-    #inventory { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 300px; padding: 14px 16px; pointer-events: auto; }
-    .inv-title { font-weight: 600; font-size: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; color: #e8c25f; }
-    .inv-title span { color: #c9a86a; }
-    .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .inv-item { border: 1.5px solid #55492e; border-radius: 8px; background: rgba(30, 32, 48, 0.6); padding: 8px; text-align: center; font-size: 12px; }
-    .inv-icon { font-size: 24px; }
-    .inv-name { margin: 4px 0 2px; color: #e8dcc4; }
-    .inv-hint { margin-top: 10px; font-size: 11px; color: #8a7a55; text-align: center; }
+    @keyframes comboPop { 0% { transform: scale(0.6); opacity: 0.4; }
+      60% { transform: scale(1.22); opacity: 1; } 100% { transform: scale(1); } }
   </style>
 </head>
 <body>
@@ -134,20 +205,20 @@
       <div class="prow" id="comp1-row">
         <div class="portrait p-kusa" id="comp1-portrait">쿠</div>
         <div class="pinfo">
-          <div class="pname" id="comp1-name"><b>쿠사</b> — 술법사</div>
+          <div class="pname" id="comp1-name"><b>쿠사</b></div>
           <div class="bar"><div id="comp1-hp" class="fill"></div><div id="comp1-txt" class="txt"></div></div>
         </div>
       </div>
       <div class="prow" id="comp2-row">
         <div class="portrait p-rening" id="comp2-portrait">레</div>
         <div class="pinfo">
-          <div class="pname" id="comp2-name"><b>레닝</b> — 사수</div>
+          <div class="pname" id="comp2-name"><b>레닝</b></div>
           <div class="bar"><div id="comp2-hp" class="fill"></div><div id="comp2-txt" class="txt"></div></div>
         </div>
       </div>
-      <div id="gold-row"><span class="coin"></span><span id="gold-amount">0</span> G · <span class="invkey">I</span> 인벤토리 · <span class="invkey">K</span> 스킬 <span id="skill-pts"></span></div>
+      <div id="gold-row"><span id="gold-amount">0</span> G<span class="invkey">I</span> 인벤토리<span class="invkey">K</span> 수련 <span id="skill-pts"></span></div>
     </div>
-    <div id="hint" class="panel">좌클릭 이동/물리공격 · 우클릭 술법(MP) · WASD 이동 · Q/E 회전 · Shift 달리기 · Space 점프 · 2/3/4 무기 · 1 혼백 · K 스킬 · E 대화</div>
+    <div id="hint" class="panel">좌클릭 이동·공격 · 우클릭 술법 · Space 회피 · Shift 달리기 · 2/3/4 무기 · 1 회복 · K 수련 · E 대화</div>
     <div id="levelup"></div>
     <div id="combo"></div>
     <div id="inventory" class="panel">
@@ -155,23 +226,23 @@
       <div class="inv-grid">
         <div class="inv-item"><div class="inv-icon">🔮</div><div class="inv-name">혼백</div><div id="inv-jelly-count">x 0</div></div>
       </div>
-      <div class="inv-hint">퀵슬롯 1번 키로 혼백 사용 (HP +15)</div>
+      <div class="inv-hint">1번 키로 혼백 사용 (HP +15)</div>
     </div>
     <div id="quickbar" class="panel"></div>
-    <div id="minimap-frame"><div class="label">미니맵</div></div>
+    <div id="minimap-frame"><div class="label">MAP</div></div>
     <div id="talk-hint" class="panel">E 대화하기</div>
     <div id="shop" class="panel">
-      <div class="shop-title">🧧 무녀 소하의 부적방 <button id="shop-close">✕</button></div>
+      <div class="shop-title">무녀 소하 <button id="shop-close">✕</button></div>
       <div class="shop-wallet"><span id="shop-gold">0 G</span> · <span id="shop-jelly">혼백 x 0</span></div>
       <button id="shop-sell" class="shop-sellbtn">혼백 전부 팔기</button>
       <div id="shop-rows"></div>
-      <div class="shop-hint">혼백과 골드로 무기에 신령한 기운을 불어넣으세요 (최대 +5)</div>
+      <div class="shop-hint">혼백과 골드로 무기를 강화합니다 (최대 +5)</div>
     </div>
     <div id="skillwin" class="panel">
-      <div class="skill-title">📖 수련 — 스탯 & 스킬 <button id="skill-close">✕</button></div>
+      <div class="skill-title">수련 <button id="skill-close">✕</button></div>
       <div id="skill-points">스탯 포인트 0 · 스킬 포인트 0</div>
       <div id="skill-trees"></div>
-      <div class="shop-hint">레벨업마다 스탯 +3 · 스킬 +1 — 원하는 방향으로만 단련하세요</div>
+      <div class="shop-hint">레벨업마다 스탯 +3 · 스킬 +1</div>
     </div>
     <div id="dialog" class="panel">
       <div id="dialog-name"></div>
