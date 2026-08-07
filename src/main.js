@@ -20,7 +20,7 @@ import { ThirdPersonCamera } from './player/camera.js';
 import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import {
-  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity, setPartyInfo
+  initHUD, setMP, toggleInventory, setActiveWeapon, setPlayerIdentity
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 
@@ -34,7 +34,6 @@ async function boot() {
   const { obstacles, ground } = buildWorld(scene, shadow);
   addStaticWorld(scene, ground, obstacles);
   const charKey = await choicePromise;
-  const others = Object.values(CHARACTERS).filter((c) => c.key !== charKey);
 
   const player = new Player(scene, obstacles, shadow, charKey);
   const monsters = new MonsterManager(scene, obstacles, shadow);
@@ -49,8 +48,9 @@ async function boot() {
   const drops = new DropManager(scene, true);
   const projectiles = new ProjectileManager(scene, obstacles);
   player.projectiles = projectiles;
-  const companions = new CompanionManager(scene, shadow, others);
-  const party = [player, ...companions.list];
+  // 솔로 플레이: 선택한 캐릭터 한 명만 등장 (동료 AI 비활성)
+  const companions = new CompanionManager(scene, shadow, []);
+  const party = [player];
 
   scene.cameraToUseForPointers = camRig.cam;
 
@@ -102,7 +102,8 @@ async function boot() {
 
   initHUD();
   setPlayerIdentity(CHARACTERS[charKey]);
-  others.forEach((c, i) => setPartyInfo(i + 1, c));
+  document.getElementById('comp1-row').style.display = 'none';
+  document.getElementById('comp2-row').style.display = 'none';
   initDialog();
   initShop();
   initSkills();
