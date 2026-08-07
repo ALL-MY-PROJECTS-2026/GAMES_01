@@ -30,6 +30,9 @@ import {
   initSpellBar, getSelectedSpell, setSpellCooldown, setSpellAffordable, selectSpellByIndex
 } from './ui/spellbar.js';
 import { SPELLS, SPELL_ORDER } from './core/spells.js';
+import { net } from './net/net.js';
+import { GhostManager } from './net/ghosts.js';
+import { initInventory, addItem, renderInventory } from './ui/inventory.js';
 
 async function boot() {
   setLoadingTotal(5);
@@ -65,6 +68,7 @@ async function boot() {
   const vfx = new VFX(scene);
   player.vfx = vfx;
   projectiles.vfx = vfx;
+  const ghosts = new GhostManager(scene, shadow);
   // 솔로 플레이: 선택한 캐릭터 한 명만 등장 (동료 AI 비활성)
   const companions = new CompanionManager(scene, shadow, []);
   const party = [player];
@@ -143,6 +147,26 @@ async function boot() {
   initShop();
   initSkills();
   initSpellBar();
+  // 소지품에서 소모품을 눌렀을 때
+  initInventory((def) => {
+    if (def.use === 'heal') {
+      if (player.hp >= player.maxHp) return false;
+      player.hp = Math.min(player.maxHp, player.hp + def.amount);
+      setHP(player.hp, player.maxHp);
+    } else if (def.use === 'mana') {
+      if (player.mp >= player.maxMp) return false;
+      player.mp = Math.min(player.maxMp, player.mp + def.amount);
+      setMP(Math.round(player.mp), player.maxMp);
+    } else if (def.use === 'stamina') {
+      if (player.stamina >= player.maxStamina) return false;
+      player.stamina = player.maxStamina;
+      player.exhaustT = 0;
+    } else {
+      return false;
+    }
+    sfx.pickup();
+    return true;
+  });
   initAudio();
   bindPlayer(player);
   setMP(player.mp, player.maxMp);
@@ -150,7 +174,7 @@ async function boot() {
   const weaponKeys = { Digit2: 'punch', Digit3: 'sword', Digit4: 'gun' };
   setActiveWeapon(player.weapon);
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyI') toggleInventory();
+    if (e.code === 'KeyI') { renderInventory(); toggleInventory(); }
     if (e.code === 'KeyK') toggleSkills();
     if (e.code === 'F1' || e.code === 'F2') {
       e.preventDefault();
@@ -168,6 +192,77 @@ async function boot() {
   let autoHunt = false;
   const autoBtn = document.getElementById('autohunt');
   if (autoBtn) autoBtn.addEventListener('click', () => { autoHunt = !autoHunt; setAutoHunt(autoHunt); });
+
+  // ── 멀티플레이 ─────────────────────────────────────────────
+  // 스탯·레벨·스킬은 각자 로컬 세이브에 남는다. 네트워크로는 위치·동작·전투 결과만 오간다.
+  const mPanel = document.getElementById('multi');
+  const mRoom = document.getElementById('m-room');
+  const mBtn = document.getElementById('m-btn');
+  const mStatus = document.getElementById('m-status');
+
+  function renderNetStatus() {
+    if (!net.connected) {
+      mPanel.classList.remove('on');
+      mBtn.textContent = '방 참가';
+      mStatus.innerHTML = '혼자 플레이 중<br>같은 방 이름을 넣으면 만납니다';
+      return;
+    }
+    mPanel.classList.add('on');
+    mBtn.textContent = '나가기';
+    mStatus.innerHTML =
+      `방 <b>${net.roomCode}</b> · 동료 <b>${net.peerCount}</b>명` +
+      (net.isHost ? '<br><span class="m-host">내가 호스트 (몬스터 담당)</span>' : '<br>호스트에 연결됨');
+  }
+
+  mBtn.addEventListener('click', () => {
+    if (net.connected) {
+      net.leave();
+      ghosts.clear();
+    } else {
+      const code = (mRoom.value || '').trim();
+      if (!code) { mRoom.focus(); return; }
+      net.join(code);
+    }
+    renderNetStatus();
+  });
+  // 입력창에 포커스가 있을 때 게임 단축키가 먹지 않게
+  mRoom.addEventListener('keydown', (e) => e.stopPropagation());
+
+  net.onPeerJoin = renderNetStatus;
+  net.onPeerLeave = (id) => { ghosts.remove(id); renderNetStatus(); };
+
+  // 비호스트: 호스트가 보낸 몬스터 상태를 그대로 반영한다
+  net.onMonsterSnapshot = (snap) => {
+    for (const m of snap) {
+      const mon = monsters.list[m.i];
+      if (!mon) continue;
+      mon.netTarget = { x: m.x, z: m.z, ry: m.r };
+      mon.hp = m.h;
+      if (m.d && !mon.dead) mon.takeDamage(99999, null, 0, 0);
+      else if (!m.d && mon.dead) { mon.dead = false; mon.hp = m.h; mon.respawnT = 0; mon.setVisible(true); mon.hpBg.setEnabled(true); mon.hpBar.setEnabled(true); }
+    }
+  };
+
+  // 호스트: 다른 피어가 보고한 타격을 실제 피해로 적용한다
+  net.onHitReport = (rep) => {
+    const mon = monsters.list[rep.i];
+    if (!mon || mon.dead) return;
+    const killed = mon.takeDamage(rep.d, { x: rep.x, z: rep.z }, rep.k, rep.u);
+    if (killed) drops.spawnFor(mon.cfg, mon.group.position, mon.cfg.jelly);
+  };
+
+  // 몬스터가 피해를 입을 때: 비호스트면 직접 적용하지 않고 호스트에 보고한다
+  projectiles.reportDamage = (monster, dmg, dir, knock, knockUp) =>
+    player.reportDamage(monster, dmg, dir, knock, knockUp);
+  player.reportDamage = (monster, dmg, dir, knock, knockUp) => {
+    if (!net.connected || net.isHost) return false;
+    const i = monsters.list.indexOf(monster);
+    if (i < 0) return false;
+    net.reportHit(i, dmg, dir.x, dir.z, knock, knockUp);
+    return true;
+  };
+
+  renderNetStatus();
 
   const talkHint = document.getElementById('talk-hint');
   const idleInput = {
@@ -265,7 +360,37 @@ async function boot() {
         sfx.hit();
       }
     };
-    monsters.update(d, party);
+    // 몬스터 AI는 호스트만 돌린다. 비호스트는 받은 좌표로 부드럽게 따라간다.
+    if (!net.connected || net.isHost) {
+      monsters.update(d, party);
+    } else {
+      for (const m of monsters.list) {
+        if (!m.netTarget) continue;
+        const k = Math.min(1, d * 12);
+        m.group.position.x += (m.netTarget.x - m.group.position.x) * k;
+        m.group.position.z += (m.netTarget.z - m.group.position.z) * k;
+        let df = m.netTarget.ry - m.group.rotation.y;
+        df = Math.atan2(Math.sin(df), Math.cos(df));
+        m.group.rotation.y += df * k;
+        if (m.hpBar) m.hpBar.scaling.x = Math.max(0, m.hp / m.cfg.hp);
+        if (m.anims) { m.animLock = Math.max(0, (m.animLock || 0) - d); if (m.animLock <= 0) m.playAnim('walk', 1.1); }
+      }
+    }
+    ghosts.update(d, net.peers);
+    net.tick(d,
+      () => ({
+        x: +player.group.position.x.toFixed(2),
+        z: +player.group.position.z.toFixed(2),
+        ry: +player.group.rotation.y.toFixed(2),
+        a: player.currentKey || 'idle',
+        n: CHARACTERS[charKey].name,
+        lv: stats.level
+      }),
+      () => monsters.list.map((m, i) => ({
+        i, x: +m.group.position.x.toFixed(2), z: +m.group.position.z.toFixed(2),
+        r: +m.group.rotation.y.toFixed(2), h: Math.round(m.hp), d: m.dead ? 1 : 0
+      }))
+    );
     projectiles.updateHostile(d, player);
     player.updateGroundAreas(d, monsters.list, handleHit);
     vfx.update(d);
@@ -286,18 +411,7 @@ async function boot() {
       switch (item.effect) {
         case 'jelly': addJelly(amt); break;
         case 'gold': addGold(amt); break;
-        case 'heal':
-          player.hp = Math.min(player.maxHp, player.hp + amt);
-          setHP(player.hp, player.maxHp);
-          break;
-        case 'mana':
-          player.mp = Math.min(player.maxMp, player.mp + amt);
-          setMP(Math.round(player.mp), player.maxMp);
-          break;
-        case 'stamina':
-          player.stamina = player.maxStamina;
-          player.exhaustT = 0;
-          break;
+        case 'item': addItem(item.key, 1); break;   // 소모품은 소지품에 쌓인다
       }
       showPickup(item, amt);
       sfx.pickup();
@@ -322,7 +436,7 @@ async function boot() {
 
   window.__game = {
     engine, scene, player, camRig, minimap, input, monsters, npcs, drops, projectiles, obstacles,
-    companions, party, marker,
+    companions, party, marker, net, ghosts, vfx, drops,
     stats,
     debug: { addGold, addJelly, addXp },
     dialog: { openDialog, advanceDialog, isDialogOpen },

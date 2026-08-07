@@ -138,11 +138,27 @@
     #dialog-next { font-size: 11px; color: var(--muted); text-align: right; margin-top: 7px; }
 
     /* ── 공용 창(상점/수련/인벤토리) ── */
-    #shop, #skillwin, #inventory { display: none; position: absolute; top: 50%; left: 50%;
+    #shop, #skillwin { display: none; position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%); pointer-events: auto; padding: 16px 18px; }
     #shop { width: 400px; max-width: 92vw; }
     #skillwin { width: 440px; max-width: 92vw; max-height: 82vh; overflow-y: auto; }
-    #inventory { width: 320px; }
+    /* ── 소지품 (우측 카드 그리드) ── */
+    #inventory { display: none; position: absolute; top: 50%; right: 16px;
+      transform: translateY(-50%); width: 268px; padding: 14px; pointer-events: auto; }
+    #inv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    .inv-cell { position: relative; aspect-ratio: 1; border-radius: 7px;
+      background: rgba(255,255,255,0.05); border: 1px solid var(--edge); }
+    .inv-cell.empty { background: rgba(255,255,255,0.02); }
+    .inv-cell[data-item] { border-color: color-mix(in srgb, var(--item-color) 55%, transparent);
+      background: color-mix(in srgb, var(--item-color) 12%, rgba(255,255,255,0.04)); }
+    .inv-cell.usable { cursor: pointer; }
+    .inv-cell.usable:hover { border-color: var(--item-color);
+      background: color-mix(in srgb, var(--item-color) 26%, rgba(255,255,255,0.04)); }
+    .inv-ic { position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 23px; }
+    .inv-ct { position: absolute; right: 4px; bottom: 2px; font-size: 11px;
+      font-weight: 700; color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+    #inv-empty { color: var(--muted); font-size: 11.5px; text-align: center; margin-top: 10px; }
     .win-title, .shop-title, .skill-title, .inv-title { display: flex; justify-content: space-between;
       align-items: center; font-weight: 700; font-size: 14px; margin-bottom: 12px; }
     #shop-close, #skill-close { border: 1px solid var(--edge-strong); background: transparent;
@@ -228,6 +244,25 @@
     .pk-icon { margin-right: 5px; }
     @keyframes pickIn { from { opacity: 0; transform: translateX(14px); } }
     @keyframes pickOut { to { opacity: 0; transform: translateX(14px); } }
+
+    /* ── 멀티플레이 ── */
+    #multi { position: absolute; top: 58px; right: 16px; padding: 10px 12px; width: 214px;
+      pointer-events: auto; font-size: 11.5px; }
+    #multi .m-title { font-weight: 700; font-size: 12px; margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center; }
+    #multi .m-dot { width: 7px; height: 7px; border-radius: 50%; background: #6a7080; }
+    #multi.on .m-dot { background: #6ecf8f; }
+    #multi input { width: 100%; background: rgba(255,255,255,0.07); border: 1px solid var(--edge);
+      border-radius: 6px; color: var(--text); padding: 5px 8px; font-size: 11.5px;
+      font-family: inherit; margin-bottom: 6px; }
+    #multi input:focus { outline: none; border-color: var(--accent); }
+    #multi button { width: 100%; border: 1px solid var(--accent); background: rgba(255,176,58,0.16);
+      border-radius: 6px; color: var(--text); padding: 6px; font-size: 11.5px; font-weight: 600;
+      cursor: pointer; font-family: inherit; }
+    #multi button:hover { background: rgba(255,176,58,0.3); }
+    #multi .m-status { color: var(--muted); margin-top: 7px; line-height: 1.5; }
+    #multi .m-status b { color: var(--text); }
+    #multi .m-host { color: #6ecf8f; font-weight: 700; }
 
     /* ── 자동 사냥 ── */
     #autohunt { position: absolute; top: 16px; right: 16px; padding: 7px 12px;
@@ -317,6 +352,12 @@
     <div id="hint" class="panel">좌클릭 이동·공격 · 술법 선택 후 우클릭 시전 · Space 회피 · C 방어 · 2/3/4 무기 · F1/F2 술법 · 1 회복 · K 수련 · E 대화</div>
     <div id="pickup-layer"></div>
     <div id="autohunt" class="panel"><b>V</b> 자동 사냥</div>
+    <div id="multi" class="panel">
+      <div class="m-title">멀티플레이 <span class="m-dot"></span></div>
+      <input id="m-room" maxlength="16" placeholder="방 이름 (예: 초원1)" />
+      <button id="m-btn">방 참가</button>
+      <div class="m-status" id="m-status">혼자 플레이 중<br>같은 방 이름을 넣으면 만납니다</div>
+    </div>
     <div id="bossbar" class="panel">
       <div id="boss-name">왕도깨비 <span id="boss-hptxt"></span></div>
       <div class="bar"><div id="boss-hp" class="fill"></div></div>
@@ -324,12 +365,73 @@
     <div id="levelup"></div>
     <div id="combo"></div>
     <div id="inventory" class="panel">
-      <div class="inv-title">인벤토리 <span id="inv-gold">0 G</span></div>
-      <div class="inv-grid">
-        <div class="inv-item"><div class="inv-icon">🔮</div><div class="inv-name">혼백</div><div id="inv-jelly-count">x 0</div></div>
-      </div>
-      <div class="inv-hint">1번 키로 혼백 사용 (HP +15)</div>
+      <div class="inv-title">소지품 <span id="inv-gold">0 G</span></div>
+      <div id="inv-grid"></div>
+      <div id="inv-empty">아직 모은 것이 없습니다</div>
+      <div class="inv-hint">소모품은 눌러서 사용 · <b>1</b> 혼백</div>
     </div>
+loading">
+    <div class="load-title">귀곡의 초원</div>
+    <div class="load-sub">밤의 초원을 정화하는 쿼터뷰 액션 RPG</div>
+    <div class="load-track"><div id="load-fill"></div></div>
+    <div id="load-status">준비하는 중…</div>
+    <div class="load-keys">
+      <span><b>클릭</b> 이동 · 공격</span>
+      <span><b>우클릭</b> 술법</span>
+      <span><b>Space</b> 회피</span>
+      <span><b>C</b> 방어</span>
+      <span><b>Shift</b> 달리기</span>
+      <span><b>2</b><b>3</b><b>4</b> 무기</span>
+      <span><b>1</b> 회복</span>
+      <span><b>K</b> 수련</span>
+      <span><b>E</b> 대화</span>
+    </div>
+  </div>
+  <div id="hud">
+    <div id="hitflash"></div>
+    <div id="dmg-layer"></div>
+    <div id="party" class="panel">
+      <div class="prow">
+        <div class="portrait p-ilim" id="pportrait">림</div>
+        <div class="pinfo">
+          <div class="pname" id="char-name"><b>이림</b> (Lv.1)</div>
+          <div class="bar"><div id="hpfill" class="fill"></div><div id="hptxt" class="txt"></div></div>
+          <div class="bar small"><div id="mpfill" class="fill"></div><div id="mptxt" class="txt"></div></div>
+          <div class="bar small"><div id="spfill" class="fill"></div><div id="sptxt" class="txt"></div></div>
+          <div class="bar small"><div id="xpfill" class="fill"></div><div id="xptxt" class="txt"></div></div>
+        </div>
+      </div>
+      <div class="prow" id="comp1-row">
+        <div class="portrait p-kusa" id="comp1-portrait">쿠</div>
+        <div class="pinfo">
+          <div class="pname" id="comp1-name"><b>쿠사</b></div>
+          <div class="bar"><div id="comp1-hp" class="fill"></div><div id="comp1-txt" class="txt"></div></div>
+        </div>
+      </div>
+      <div class="prow" id="comp2-row">
+        <div class="portrait p-rening" id="comp2-portrait">레</div>
+        <div class="pinfo">
+          <div class="pname" id="comp2-name"><b>레닝</b></div>
+          <div class="bar"><div id="comp2-hp" class="fill"></div><div id="comp2-txt" class="txt"></div></div>
+        </div>
+      </div>
+      <div id="gold-row"><span id="gold-amount">0</span> G<span class="invkey">I</span> 인벤토리<span class="invkey">K</span> 수련 <span id="skill-pts"></span></div>
+    </div>
+    <div id="hint" class="panel">좌클릭 이동·공격 · 술법 선택 후 우클릭 시전 · Space 회피 · C 방어 · 2/3/4 무기 · F1/F2 술법 · 1 회복 · K 수련 · E 대화</div>
+    <div id="pickup-layer"></div>
+    <div id="autohunt" class="panel"><b>V</b> 자동 사냥</div>
+    <div id="multi" class="panel">
+      <div class="m-title">멀티플레이 <span class="m-dot"></span></div>
+      <input id="m-room" maxlength="16" placeholder="방 이름 (예: 초원1)" />
+      <button id="m-btn">방 참가</button>
+      <div class="m-status" id="m-status">혼자 플레이 중<br>같은 방 이름을 넣으면 만납니다</div>
+    </div>
+    <div id="bossbar" class="panel">
+      <div id="boss-name">왕도깨비 <span id="boss-hptxt"></span></div>
+      <div class="bar"><div id="boss-hp" class="fill"></div></div>
+    </div>
+    <div id="levelup"></div>
+    <div id="combo"></div>
     <div id="spellbar" class="panel"></div>
     <div id="quickbar" class="panel"></div>
     <div id="minimap-frame"><div class="label">MAP</div></div>

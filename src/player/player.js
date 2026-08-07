@@ -757,7 +757,9 @@ export class Player {
       }
       const wKey = this.pendingWeaponKey || this.weapon;
       const dealt = Math.round(weaponDamage(w.damage, wKey) * this._dmgMul(wKey));
-      const killed = m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0);
+      // 멀티: 판정은 호스트가 한다. 비호스트는 보고만 하고 숫자는 띄운다.
+      const relayed = this.reportDamage && this.reportDamage(m, dealt, fwd, w.knock, w.knockUp || 0);
+      const killed = relayed ? false : m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0);
       this.popDamage(m, dealt, this.pendingIsFinisher);
       hitAny = true;
       // D. 타격 이펙트 — 무기별 색

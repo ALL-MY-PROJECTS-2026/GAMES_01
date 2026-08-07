@@ -3,35 +3,41 @@
 export const LOOT = {
   soul: {
     key: 'soul', name: '혼백', icon: '🔮', color: '#9fd8ff',
-    shape: 'gem', weight: 100, effect: 'jelly', amount: 1
+    shape: 'gem', weight: 100, effect: 'jelly', amount: 1, desc: '무기 강화 재료 · 사용 시 HP +15'
   },
   elixir: {
     key: 'elixir', name: '영약', icon: '🧪', color: '#ff6b6b',
-    model: 'mug_full.gltf', height: 0.5, weight: 26, effect: 'heal', amount: 35
+    model: 'mug_full.gltf', height: 0.5, weight: 26, effect: 'item', use: 'heal', amount: 35,
+    desc: '생명력 35 회복'
   },
   spiritInk: {
     key: 'spiritInk', name: '주묵', icon: '📗', color: '#7fb0ff',
-    model: 'spellbook_open.gltf', height: 0.45, weight: 22, effect: 'mana', amount: 45
+    model: 'spellbook_open.gltf', height: 0.45, weight: 22, effect: 'item', use: 'mana', amount: 45,
+    desc: '기(MP) 45 회복'
   },
   stamPill: {
     key: 'stamPill', name: '기력단', icon: '💨', color: '#8fe6c8',
-    model: 'smokebomb.gltf', height: 0.4, weight: 20, effect: 'stamina', amount: 999
+    model: 'smokebomb.gltf', height: 0.4, weight: 20, effect: 'item', use: 'stamina', amount: 999,
+    desc: '기력을 가득 채운다'
   },
   arrowBundle: {
     key: 'arrowBundle', name: '화살 다발', icon: '🎯', color: '#ffd666',
-    model: 'arrow_bundle.gltf', height: 0.5, weight: 18, effect: 'gold', amount: [18, 34]
+    model: 'arrow_bundle.gltf', height: 0.5, weight: 18, effect: 'gold', amount: [18, 34],
+    desc: '팔아서 골드로'
   },
   goldPouch: {
     key: 'goldPouch', name: '금낭', icon: '💰', color: '#ffb03a',
-    shape: 'pouch', weight: 30, effect: 'gold', amount: [25, 55]
+    shape: 'pouch', weight: 30, effect: 'gold', amount: [25, 55], desc: '즉시 골드 획득'
   },
   steelShard: {
     key: 'steelShard', name: '강철 파편', icon: '⚙️', color: '#c9d2dc',
-    model: 'dagger.gltf', height: 0.42, weight: 10, tier: 2, effect: 'jelly', amount: 3
+    model: 'dagger.gltf', height: 0.42, weight: 10, tier: 2, effect: 'jelly', amount: 3,
+    desc: '강화 재료 (혼백 3개분)'
   },
   wardStone: {
     key: 'wardStone', name: '결계석 조각', icon: '💎', color: '#b06cff',
-    shape: 'gem', scale: 1.5, weight: 4, tier: 3, effect: 'jelly', amount: 8
+    shape: 'gem', scale: 1.5, weight: 4, tier: 3, effect: 'jelly', amount: 8,
+    desc: '희귀 강화 재료 (혼백 8개분)'
   }
 };
 
