@@ -5,6 +5,7 @@ import {
   Color3,
   Vector3,
   Mesh,
+  DynamicTexture,
   SceneLoader
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
@@ -430,6 +431,15 @@ export const MONSTER_TYPES = {
   }
 };
 
+// 색이 고정인 공용 재질은 씬당 하나만 만든다 — 개체마다 만들면 존을 오갈 때마다 쌓인다
+const SHARED_MATS = new WeakMap();
+function sharedFlatMat(scene, name, hex, emissive = false) {
+  let byName = SHARED_MATS.get(scene);
+  if (!byName) { byName = {}; SHARED_MATS.set(scene, byName); }
+  if (!byName[name]) byName[name] = flatMat(scene, name, hex, emissive);
+  return byName[name];
+}
+
 function flatMat(scene, name, hex, emissive = false) {
   const mat = new StandardMaterial(name, scene);
   if (emissive) {
@@ -443,9 +453,10 @@ function flatMat(scene, name, hex, emissive = false) {
 }
 
 class Monster {
-  constructor(scene, shadow, typeKey) {
+  constructor(scene, shadow, typeKey, zone = null) {
     this.scene = scene;
     this.typeKey = typeKey;
+    this.zone = zone;
     this.cfg = MONSTER_TYPES[typeKey];
     this.group = new TransformNode('mon-' + typeKey, scene);
     this.body = new TransformNode('monBody', scene);
@@ -455,11 +466,13 @@ class Monster {
     shell.parent = this.body;
     shell.scaling.setAll(this.cfg.procScale || 1);
 
-    const eyeMat = flatMat(scene, 'eye', '#222222', true);
+    const eyeMat = sharedFlatMat(scene, 'eye', '#222222', true);
 
     if (this.cfg.model) {
-      // GLB 스킨드 메시 몬스터 — 히트 플래시 대신 스쿼시만 사용
-      this.flashMat = new StandardMaterial('dummyFlash' + typeKey, scene);
+      // GLB 스킨드 메시 몬스터 — 히트 플래시 대신 스쿼시만 사용.
+      // 이 재질은 어떤 메시에도 붙지 않는 더미라 종류마다 하나만 두면 된다
+      // (개체마다 만들면 메시에 안 붙어 있어 group.dispose가 못 잡고 그대로 샌다)
+      this.flashMat = sharedFlatMat(scene, 'dummyFlash' + typeKey, '#ffffff');
       this.baseColor = this.flashMat.diffuseColor.clone();
       this.anims = null;
       this.animName = '';
@@ -517,39 +530,61 @@ class Monster {
       const horn = MeshBuilder.CreateCylinder(
         'dkHorn', { diameterTop: 0, diameterBottom: 0.22, height: 0.45, tessellation: 8 }, scene
       );
-      horn.material = flatMat(scene, 'hornMat', '#e8d8a8');
+      horn.material = sharedFlatMat(scene, 'hornMat', '#e8d8a8');
       horn.position.set(0, 2.05, 0);
       horn.parent = shell;
 
       const club = MeshBuilder.CreateCylinder(
         'dkClub', { diameterTop: 0.3, diameterBottom: 0.14, height: 1.0, tessellation: 8 }, scene
       );
-      club.material = flatMat(scene, 'clubMat', '#5a4028');
+      club.material = sharedFlatMat(scene, 'clubMat', '#5a4028');
       club.position.set(0.62, 0.9, 0.15);
       club.rotation.z = -0.5;
       club.parent = shell;
 
       for (const sx of [-0.18, 0.18]) {
         const eye = MeshBuilder.CreateSphere('eye', { diameter: 0.15, segments: 6 }, scene);
-        eye.material = flatMat(scene, 'dkEye', '#ffd23e', true);
+        eye.material = sharedFlatMat(scene, 'dkEye', '#ffd23e', true);
         eye.position.set(sx, 1.6, 0.38);
         eye.parent = shell;
       }
     }
 
     this.hpBg = MeshBuilder.CreatePlane('hpBg', { width: 1.3, height: 0.14 }, scene);
-    this.hpBg.material = flatMat(scene, 'hpBg', '#2c2c2a', true);
+    this.hpBg.material = sharedFlatMat(scene, 'hpBg', '#2c2c2a', true);
     this.hpBg.billboardMode = Mesh.BILLBOARDMODE_ALL;
     this.hpBg.position.y = this.cfg.barY;
     this.hpBg.parent = this.group;
 
     this.hpBar = MeshBuilder.CreatePlane('hpBar', { width: 1.24, height: 0.1 }, scene);
-    this.hpBar.material = flatMat(scene, 'hpFill', '#e24b4a', true);
+    this.hpBar.material = sharedFlatMat(scene, 'hpFill', '#e24b4a', true);
     this.hpBar.billboardMode = Mesh.BILLBOARDMODE_ALL;
     this.hpBar.position.y = this.cfg.barY;
     this.hpBar.parent = this.group;
 
-    this.hp = this.cfg.hp;
+    // 레벨 표시 — 안 보이면 왜 갑자기 죽는지 알 수 없다
+    this.levelTex = new DynamicTexture('lvTex', { width: 128, height: 32 }, scene, false);
+    this.levelTex.hasAlpha = true;
+    const lvMat = new StandardMaterial('lvMat', scene);
+    lvMat.emissiveTexture = this.levelTex;
+    lvMat.opacityTexture = this.levelTex;
+    lvMat.disableLighting = true;
+    lvMat.specularColor = new Color3(0, 0, 0);
+    this.levelPlate = MeshBuilder.CreatePlane('lvPlate', { width: 0.9, height: 0.23 }, scene);
+    this.levelPlate.material = lvMat;
+    this.levelPlate.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    this.levelPlate.position.y = this.cfg.barY + 0.22;
+    this.levelPlate.isPickable = false;
+    this.levelPlate.parent = this.group;
+
+    // 스탯은 개체가 들고 있는다 — 같은 종이라도 존과 위치에 따라 세기가 달라진다
+    this.level = 1;
+    this.maxHp = this.cfg.hp;
+    this.damage = this.cfg.damage;
+    this.xpValue = this.cfg.xp;
+    this.goldRange = this.cfg.gold;
+    this.jellyCount = this.cfg.jelly;
+    this.hp = this.maxHp;
     this.dead = false;
     this.respawnT = 0;
     this.attackT = 0;
@@ -574,9 +609,16 @@ class Monster {
   async _loadModel(shadow) {
     const m = this.cfg.model;
     const container = await loadContainer(this.scene, m.file);
+    if (this.disposed) return;
     // 색을 갈아입힐 때만 재질을 복제한다 — 나머지는 파일 하나의 재질을 공유한다
     const inst = container.instantiateModelsToScene((name) => name, !!m.tint);
     const rootMesh = inst.rootNodes[0];
+    // 이 아래로는 언제든 걷어내야 할 수 있으므로 정리 함수를 미리 잡아둔다
+    const bail = () => {
+      for (const g of inst.animationGroups) g.dispose();
+      rootMesh.dispose(false, true);
+    };
+    if (this.disposed) return bail();
 
     const holder = new TransformNode('monModel', this.scene);
     holder.parent = this.body;
@@ -634,12 +676,14 @@ class Monster {
         if (!bone) continue;
         const mesh = await loadKitMesh(this.scene, pick.file, { height: pick.height || 0.9 });
         if (!mesh) continue;
+        if (this.disposed) { mesh.dispose(false, true); return bail(); }
         mesh.parent = bone.getTransformNode();
         mesh.position.set(0, 0, 0);
         if (shadow) for (const cm of mesh.getChildMeshes()) shadow.addShadowCaster(cm);
       }
     }
 
+    if (this.disposed) return bail();
     this.playAnim('idle');
   }
 
@@ -671,6 +715,17 @@ class Monster {
     return dur;
   }
 
+  /** 이름표에 레벨을 그린다 — 보스는 눈에 띄게 */
+  _drawLevel() {
+    const g = this.levelTex.getContext();
+    g.clearRect(0, 0, 128, 32);
+    g.font = 'bold 22px sans-serif';
+    g.textAlign = 'center';
+    g.fillStyle = this.cfg.isBoss ? '#ffb03a' : '#e8e2d0';
+    g.fillText(`Lv.${this.level}`, 64, 24);
+    this.levelTex.update();
+  }
+
   placeRandom() {
     const [rMin, rMax] = this.cfg.ring;
     const angle = Math.random() * Math.PI * 2;
@@ -680,10 +735,41 @@ class Monster {
       0,
       Math.max(-WORLD_HALF, Math.min(WORLD_HALF, Math.sin(angle) * radius))
     );
+    // 자리를 잡은 뒤에야 레벨이 정해진다 — 중심에서 멀수록 세다
+    this._applyLevel((radius - rMin) / Math.max(0.001, rMax - rMin));
+  }
+
+  /**
+   * 존의 레벨 구간과 중심으로부터의 거리로 개체 레벨을 정하고 배율만 곱한다.
+   * MONSTER_TYPES의 숫자는 손으로 맞춘 균형이라 건드리지 않는다.
+   */
+  _applyLevel(ringRatio) {
+    const zone = this.zone;
+    if (!zone || !zone.level) return;
+    const [lo, hi] = zone.level;
+    const lv = Math.max(1, Math.round(lo + (hi - lo) * Math.min(1, Math.max(0, ringRatio))));
+    this.level = lv;
+    const k = lv - 1;
+    this.maxHp = Math.round(this.cfg.hp * (1 + 0.35 * k));
+    this.damage = Math.round(this.cfg.damage * (1 + 0.18 * k));
+    this.xpValue = Math.round(this.cfg.xp * (1 + 0.30 * k));
+    const gm = 1 + 0.25 * k;
+    this.goldRange = [Math.round(this.cfg.gold[0] * gm), Math.round(this.cfg.gold[1] * gm)];
+    this.jellyCount = this.cfg.jelly + Math.floor(k / 6);
+    this.hp = this.maxHp;
+    if (this.levelTex) this._drawLevel();
   }
 
   setVisible(v) {
     this.group.setEnabled(v);
+  }
+
+  /** 존을 바꿀 때 통째로 걷어낸다 */
+  dispose() {
+    // 모델 로딩이 끝나기 전에 걷어낼 수 있다. 플래그를 보고 뒤늦은 로딩이 스스로 접게 한다
+    this.disposed = true;
+    if (this.levelTex) this.levelTex.dispose();
+    this.group.dispose(false, true);
   }
 
   takeDamage(amount, dir = null, knock = 9, knockUp = 0) {
@@ -707,6 +793,7 @@ class Monster {
       this.knock.scaleInPlace(1.4);
       this.hpBg.setEnabled(false);
       this.hpBar.setEnabled(false);
+      this.levelPlate.setEnabled(false);
       // 사망 클립이 있으면 쓰러지는 연출로, 없으면 시체가 날아가는 연출로
       if (this.cfg.model && this.cfg.model.clips.death) {
         this.playOneShot('death', 1);
@@ -761,11 +848,12 @@ class Monster {
       this.respawnT -= delta;
       if (this.respawnT <= 0) {
         this.dead = false;
-        this.hp = this.cfg.hp;
+        this.hp = this.maxHp;
         this.stunT = 0;
         this.slowT = 0;
         this.hpBg.setEnabled(true);
         this.hpBar.setEnabled(true);
+        this.levelPlate.setEnabled(true);
         this.setVisible(true);
         this.placeRandom();
       }
@@ -800,7 +888,7 @@ class Monster {
       pos.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.x));
       pos.z = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, pos.z));
       resolveCollision(pos, 0.7, obstacles);
-      this.hpBar.scaling.x = Math.max(0, this.hp / this.cfg.hp);
+      this.hpBar.scaling.x = Math.max(0, this.hp / this.maxHp);
       return;
     }
 
@@ -809,7 +897,7 @@ class Monster {
       this.stunT -= delta;
       this.pendingAtk = null;
       this.playAnim('idle');
-      this.hpBar.scaling.x = Math.max(0, this.hp / this.cfg.hp);
+      this.hpBar.scaling.x = Math.max(0, this.hp / this.maxHp);
       return;
     }
 
@@ -874,7 +962,7 @@ class Monster {
           this.pendingAtk.t -= delta;
           if (this.pendingAtk.t <= 0) {
             const pat = this.pendingAtk.pattern;
-            const dmg = Math.round(this.cfg.damage * pat.damageMul);
+            const dmg = Math.round(this.damage * pat.damageMul);
             for (const t of targets) {
               if (t.dead || t.hp <= 0) continue;
               const d = Math.hypot(t.group.position.x - pos.x, t.group.position.z - pos.z);
@@ -904,14 +992,14 @@ class Monster {
           this.projectiles.spawnHostile(
             { x: pos.x + nx * 0.6, y: 1.3, z: pos.z + nz * 0.6 },
             { x: nx, z: nz },
-            this.cfg.damage, rng.projectileColor, rng.speed
+            this.damage, rng.projectileColor, rng.speed
           );
         }
       } else if (dist < this.cfg.attackRange && this.attackT <= 0) {
         this.attackT = ATTACK_INTERVAL;
         this.attackAnim = 0.3;
         this.playOneShot('attack', 1.3);
-        target.takeDamage(this.cfg.damage, { x: nx, z: nz });
+        target.takeDamage(this.damage, { x: nx, z: nz });
       }
     } else {
       this.wanderT -= delta;
@@ -956,36 +1044,48 @@ class Monster {
       this.body.position.y = Math.abs(Math.sin(this.bounce)) * 0.12 + hop;
     }
 
-    this.hpBar.scaling.x = Math.max(0, this.hp / this.cfg.hp);
+    this.hpBar.scaling.x = Math.max(0, this.hp / this.maxHp);
   }
 }
 
 export class MonsterManager {
-  // 개체 수는 티어별로 배분한다. 절차적 몬스터(원귀·도깨비 계열)는 스킨드 메시가 없어
-  // 값이 싸므로 밀도를 채우는 쪽에 많이 쓰고, GLB 몬스터는 그보다 적게 둔다.
-  constructor(scene, obstacles, shadow,
-    counts = {
-      // T0 · 중심부
-      wisp: 6, slime: 4, minion: 5,
-      // T1
-      frostWisp: 4, fox: 4, mushroom: 3, bandit: 3, banditArcher: 3, blueOni: 3,
-      // T2
-      hexGhost: 3, bone: 3, boneRogue: 3, hoodedRogue: 3, boneArcher: 3, caster: 2, boneMage: 2,
-      whiteFox: 2, firewitch: 2,
-      // T3 · 외곽
-      darkMinion: 4, redOni: 3, ironKnight: 2, boneCaptain: 2, ogre: 2,
-      // 필드 보스
-      boss: 1, boneKing: 1
-    }) {
+  // 개체는 존이 정한다 (zones.js의 spawns). 절차적 몬스터(원귀·도깨비 계열)는
+  // 스킨드 메시가 없어 값이 싸므로 밀도를 채우는 쪽에 많이 쓴다.
+  constructor(scene, obstacles, shadow, zone) {
+    this.scene = scene;
+    this.shadow = shadow;
     this.obstacles = obstacles;
     this.list = [];
-    for (const [type, n] of Object.entries(counts)) {
-      for (let i = 0; i < n; i++) this.list.push(new Monster(scene, shadow, type));
+    this.zone = null;
+    this.projectiles = null;
+    if (zone) this.load(zone);
+  }
+
+  /**
+   * 존 하나의 몬스터를 세운다. 이전 존은 통째로 걷어낸다.
+   * GLB는 파일당 한 번만 파싱하는 캐시에 남아 있으므로 다시 오갈 때 재파싱이 없다.
+   */
+  load(zone) {
+    this.dispose();
+    this.zone = zone;
+    // 스폰 순서가 곧 인덱스다 — 멀티 스냅샷이 인덱스 기반이라 양쪽이 같아야 한다
+    for (const [type, n] of Object.entries(zone.spawns)) {
+      if (!MONSTER_TYPES[type]) continue;
+      for (let i = 0; i < n; i++) {
+        this.list.push(new Monster(this.scene, this.shadow, type, zone));
+      }
     }
+    if (this.projectiles) this.setProjectiles(this.projectiles);
+  }
+
+  dispose() {
+    for (const m of this.list) m.dispose();
+    this.list = [];
   }
 
   // 원거리형 몬스터가 투사체를 쏠 수 있도록 매니저를 넘겨준다
   setProjectiles(projectiles) {
+    this.projectiles = projectiles;
     for (const m of this.list) m.projectiles = projectiles;
   }
 

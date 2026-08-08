@@ -2,6 +2,7 @@ import { createScene } from './core/scene.js';
 import { Input } from './core/input.js';
 import { initPhysics, addStaticWorld } from './core/physics.js';
 import { buildWorld } from './world/ground.js';
+import { zoneOf } from './world/zones.js';
 import { MonsterManager } from './world/monsters.js';
 import { NPCManager } from './world/npcs.js';
 import { DropManager } from './world/drops.js';
@@ -11,7 +12,7 @@ import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
 import { CHARACTERS } from './core/characters.js';
 import {
-  bindPlayer, addXp, addGold, addJelly, useJelly, stats, grantWeapon
+  bindPlayer, addXp, addGold, addJelly, useJelly, stats, grantWeapon, loadZoneKey, setZone
 } from './core/stats.js';
 import { Player } from './player/player.js';
 import { CompanionManager } from './player/companions.js';
@@ -46,17 +47,26 @@ async function boot() {
 
   loadingStep('물리 엔진 준비 중…');
   await initPhysics(scene);
-  loadingStep('초원을 그리는 중…');
-  const { obstacles, ground } = buildWorld(scene, shadow);
-  addStaticWorld(scene, ground, obstacles);
+  // 시작 존 — 세이브에 남아 있으면 그 자리에서 이어 한다
+  let zone = zoneOf(loadZoneKey());
+  loadingStep(`${zone.name}을(를) 그리는 중…`);
+  // obstacles 배열은 여러 곳이 참조로 들고 있으므로, 존을 바꿀 때
+  // 새 배열로 갈아끼우지 않고 이 배열의 내용만 바꾼다
+  const obstacles = [];
+  let world = buildWorld(scene, shadow, zone);
+  obstacles.push(...world.obstacles);
+  let worldPhys = addStaticWorld(scene, world.ground, obstacles);
 
   // 단일 주인공으로 바로 시작 (선택 화면 없음)
   loadingStep('퇴마사를 부르는 중…');
   const charKey = 'ilim';
   const player = new Player(scene, obstacles, shadow, charKey);
+  player.group.position.set(zone.start.x, 0, zone.start.z);
   loadingStep('원귀를 깨우는 중…');
-  const monsters = new MonsterManager(scene, obstacles, shadow);
+  const monsters = new MonsterManager(scene, obstacles, shadow, zone);
   const npcs = new NPCManager(scene, obstacles, shadow);
+  // 사당 마을(청운·소하)은 초원에만 있다
+  for (const npc of npcs.list) npc.group.setEnabled(!!zone.hasNpc);
   const camRig = new ThirdPersonCamera(scene);
   camRig.setObstacles(obstacles);
   const minimap = new Minimap(scene, engine, player);
@@ -86,6 +96,71 @@ async function boot() {
   marker.material = markerMat;
   marker.rotation.x = Math.PI / 2;
   marker.setEnabled(false);
+
+  // ── 관문 ──────────────────────────────────────────────────
+  // 존 경계에 세우는 빛기둥. 밟으면 다음 구역으로 넘어간다.
+  let portals = [];
+  function buildPortals() {
+    for (const p of portals) p.mesh.dispose();
+    portals = [];
+    for (const exit of (zone.exits || [])) {
+      const mesh = MeshBuilder.CreateCylinder(
+        'portal', { diameter: 3.2, height: 7, tessellation: 20 }, scene
+      );
+      const mat = new StandardMaterial('portalMat' + exit.to, scene);
+      mat.emissiveColor = Color3.FromHexString('#9fd8ff');
+      mat.diffuseColor = new Color3(0, 0, 0);
+      mat.disableLighting = true;
+      mat.alpha = 0.32;
+      mat.backFaceCulling = false;
+      mesh.material = mat;
+      mesh.position.set(exit.x, 3.5, exit.z);
+      mesh.isPickable = false;
+      portals.push({ mesh, exit });
+    }
+  }
+  buildPortals();
+
+  /** 구역을 갈아끼운다 — 씬은 그대로 두고 지형·몬스터·물리만 바꾼다 */
+  let switching = false;
+  async function enterZone(key, arrive) {
+    if (switching) return;
+    switching = true;
+    const next = zoneOf(key);
+    zone = next;
+
+    // 구역이 바뀌면 방도 갈라진다 (몬스터 인덱스가 어긋나므로)
+    if (net.connected) {
+      net.leave();
+      ghosts.clear();
+      pushChat(null, '구역이 바뀌어 방에서 나왔습니다', 'system');
+      renderNetStatus();
+    }
+    monsters.dispose();
+    worldPhys.dispose();
+    world.dispose();
+    obstacles.length = 0;               // 참조를 들고 있는 곳들이 있어 배열은 유지한다
+
+    world = buildWorld(scene, shadow, next);
+    obstacles.push(...world.obstacles);
+    worldPhys = addStaticWorld(scene, world.ground, obstacles);
+    monsters.load(next);
+    monsters.setProjectiles(projectiles);
+    buildPortals();
+
+    // 사당 마을(청운·소하)은 초원에만 있다
+    for (const npc of npcs.list) npc.group.setEnabled(!!next.hasNpc);
+
+    const at = arrive || next.start;
+    player.group.position.set(at.x, 0, at.z);
+    player.moveTarget = null;
+    player.attackTarget = null;
+    marker.setEnabled(false);
+    setZone(key);
+    showToast(`${next.name} (Lv.${next.level[0]}~${next.level[1]})`, '#9fd8ff');
+    pushChat(null, `${next.name}에 들어섰습니다`, 'system');
+    switching = false;
+  }
 
   // 클릭 지점 근처의 살아있는 몬스터를 찾아 자동 타게팅 (클릭 어시스트)
   const AIM_ASSIST_RADIUS = 2.8;
@@ -240,8 +315,10 @@ async function boot() {
     } else {
       const code = (mRoom.value || '').trim();
       if (!code) { mRoom.focus(); return; }
-      net.join(code);
-      pushChat(null, `'${code}' 방에 들어왔습니다`, 'system');
+      // 몬스터 스냅샷이 인덱스 기반이라, 구역이 다르면 엉뚱한 개체가 움직인다.
+      // 방 이름에 구역을 붙여 애초에 같은 구역끼리만 만나게 한다
+      net.join(`${code}@${zone.key}`);
+      pushChat(null, `'${code}' 방에 들어왔습니다 (${zone.name})`, 'system');
     }
     renderNetStatus();
   });
@@ -315,7 +392,11 @@ async function boot() {
   // 호스트(또는 싱글)에서 처치가 확정됐을 때
   function onMonsterKilled(mon) {
     const sh = shares(mon);
-    const cfg = mon.cfg;
+    // 개체 스탯 — 같은 종이라도 존·거리에 따라 레벨이 달라 보상도 다르다
+    const cfg = {
+      xp: mon.xpValue, gold: mon.goldRange, jelly: mon.jellyCount,
+      hp: mon.maxHp, isBoss: mon.cfg.isBoss
+    };
     // 아이템: 개수만큼 주인을 뽑는다
     const owners = [];
     for (let i = 0; i < cfg.jelly; i++) owners.push(pickOwner(sh));
@@ -466,6 +547,23 @@ async function boot() {
     // 자기중심·연쇄 술법이 참조할 대상 목록
     player.nearbyMonsters = monsters.list;
 
+    // 관문 — 가까이 가면 안내가 뜨고, 레벨이 되면 밟아서 넘어간다
+    let nearPortal = null;
+    for (const p of portals) {
+      p.mesh.rotation.y += d * 0.6;
+      const dx = p.mesh.position.x - player.group.position.x;
+      const dz = p.mesh.position.z - player.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 6 && (!nearPortal || dist < nearPortal.dist)) {
+        nearPortal = { ...p, dist };
+      }
+    }
+    if (nearPortal && nearPortal.dist < 2.0 && !switching) {
+      if (stats.level >= nearPortal.exit.needLevel) {
+        enterZone(nearPortal.exit.to, nearPortal.exit.arrive);
+      }
+    }
+
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
@@ -474,7 +572,14 @@ async function boot() {
       else if (nearNpc) { player.playAction('interact'); openDialog(nearNpc); }
     }
     const talking = isDialogOpen() || isShopOpen();
-    if (!talking && nearNpc) {
+    if (!talking && nearPortal) {
+      const ex = nearPortal.exit;
+      const ok = stats.level >= ex.needLevel;
+      talkHint.innerHTML = ok
+        ? `<b>${ex.label}</b>로 가는 관문 — 걸어 들어가세요`
+        : `<b>${ex.label}</b> — Lv.${ex.needLevel} 부터 들어갈 수 있습니다`;
+      talkHint.style.display = 'block';
+    } else if (!talking && nearNpc) {
       const verb = nearNpc.role === 'merchant' ? '상점' : '대화하기';
       talkHint.innerHTML = `<b>E</b> ${verb} — ${nearNpc.name}`;
       talkHint.style.display = 'block';
@@ -556,7 +661,7 @@ async function boot() {
         let df = m.netTarget.ry - m.group.rotation.y;
         df = Math.atan2(Math.sin(df), Math.cos(df));
         m.group.rotation.y += df * k;
-        if (m.hpBar) m.hpBar.scaling.x = Math.max(0, m.hp / m.cfg.hp);
+        if (m.hpBar) m.hpBar.scaling.x = Math.max(0, m.hp / m.maxHp);
         if (m.anims) { m.animLock = Math.max(0, (m.animLock || 0) - d); if (m.animLock <= 0) m.playAnim('walk', 1.1); }
       }
     }

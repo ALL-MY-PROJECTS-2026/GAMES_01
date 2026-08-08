@@ -158,9 +158,9 @@ export function setBossBar(boss) {
   el.style.display = 'block';
   document.getElementById('boss-name').firstChild.textContent = `${boss.cfg.name} `;
   document.getElementById('boss-hp').style.width =
-    `${Math.max(0, (boss.hp / boss.cfg.hp) * 100)}%`;
+    `${Math.max(0, (boss.hp / boss.maxHp) * 100)}%`;
   document.getElementById('boss-hptxt').textContent =
-    `${Math.max(0, Math.ceil(boss.hp))} / ${boss.cfg.hp}`;
+    `${Math.max(0, Math.ceil(boss.hp))} / ${boss.maxHp}`;
 }
 
 // 아이템 획득 알림 — 화면 우하단에 쌓였다 사라진다

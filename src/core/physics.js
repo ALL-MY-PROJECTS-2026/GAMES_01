@@ -10,8 +10,15 @@ export async function initPhysics(scene) {
   return plugin;
 }
 
+/**
+ * 지형의 정적 물리를 세운다. 존을 바꿀 때 걷어내야 하므로 dispose를 돌려준다.
+ */
 export function addStaticWorld(scene, groundMesh, obstacles) {
-  new PhysicsAggregate(groundMesh, PhysicsShapeType.BOX, { mass: 0, friction: 0.9 }, scene);
+  const made = [];
+  const groundAgg = new PhysicsAggregate(
+    groundMesh, PhysicsShapeType.BOX, { mass: 0, friction: 0.9 }, scene
+  );
+  made.push({ agg: groundAgg, mesh: null });
 
   for (const o of obstacles) {
     const col = MeshBuilder.CreateCylinder(
@@ -21,6 +28,16 @@ export function addStaticWorld(scene, groundMesh, obstacles) {
     );
     col.position.set(o.x, 2.5, o.z);
     col.isVisible = false;
-    new PhysicsAggregate(col, PhysicsShapeType.CYLINDER, { mass: 0 }, scene);
+    made.push({ agg: new PhysicsAggregate(col, PhysicsShapeType.CYLINDER, { mass: 0 }, scene), mesh: col });
   }
+
+  return {
+    dispose() {
+      for (const m of made) {
+        if (m.agg) m.agg.dispose();
+        if (m.mesh) m.mesh.dispose();
+      }
+      made.length = 0;
+    }
+  };
 }

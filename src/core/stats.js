@@ -7,7 +7,7 @@ import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 // 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -29,6 +29,8 @@ export const stats = {
   items: { jelly: 0 },
   // 보유 무기 — 나머지는 드랍으로 해금한다. 강화(upgrades)와는 별개다
   owned: { punch: true, sword: true },
+  zone: 'grassland',        // 마지막으로 있던 구역
+  zonesSeen: { grassland: true },
   upgrades: { punch: 0, sword: 0, gun: 0 },
   skillPoints: 0,
   skills: {},
@@ -68,6 +70,8 @@ export function save() {
       // 소지품 전체를 저장한다 (v2까지는 혼백만 저장해서 나머지 아이템이 사라졌다)
       items: { ...stats.items },
       owned: { ...stats.owned },
+      zone: stats.zone,
+      zonesSeen: { ...stats.zonesSeen },
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
@@ -94,6 +98,11 @@ function migrate(data) {
   if (v < 4) {
     // v3: 무기를 처음부터 다 갖고 있던 시절 → 쓰던 셋은 그대로 소급 지급한다
     data.owned = { punch: true, sword: true, gun: true };
+  }
+  if (v < 5) {
+    // v4: 구역이 하나뿐이던 시절 → 초원에서 이어 한다
+    data.zone = 'grassland';
+    data.zonesSeen = { grassland: true };
   }
   data.version = SAVE_VERSION;
   return data;
@@ -161,6 +170,19 @@ export function importSave(file) {
   });
 }
 
+/** 지형을 세우기 전에 필요하므로 bindPlayer보다 먼저 읽는다 */
+export function loadZoneKey() {
+  const data = load();
+  return (data && data.zone) || 'grassland';
+}
+
+/** 구역을 옮겼을 때 기록한다 */
+export function setZone(key) {
+  stats.zone = key;
+  stats.zonesSeen[key] = true;
+  save();
+}
+
 export function bindPlayer(player) {
   playerRef = player;
 
@@ -178,6 +200,9 @@ export function bindPlayer(player) {
     for (const k of Object.keys(stats.owned)) delete stats.owned[k];
     Object.assign(stats.owned, data.owned || { punch: true, sword: true });
     stats.owned.punch = true;
+    stats.zone = data.zone || 'grassland';
+    for (const k of Object.keys(stats.zonesSeen)) delete stats.zonesSeen[k];
+    Object.assign(stats.zonesSeen, data.zonesSeen || { grassland: true });
     Object.assign(stats.upgrades, data.upgrades || {});
     stats.skills = data.skills || {};
     // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급
