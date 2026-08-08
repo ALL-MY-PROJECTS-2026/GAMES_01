@@ -1270,6 +1270,11 @@ export class Player {
             ? this.applyDamage(m, dealt, fwd, w.knock, w.knockUp || 0)
             : m.takeDamage(dealt, fwd, w.knock, w.knockUp || 0));
       this.popDamage(m, dealt, this.pendingIsFinisher);
+      // 가시 접두사 — 근접으로 때리면 그만큼 되돌아온다 (원거리·술법은 안 맞는다)
+      if (m.thorns > 0) {
+        const back = { x: -fwd.x, z: -fwd.z };
+        this.takeDamage(Math.max(1, Math.round(dealt * m.thorns)), back);
+      }
       hitAny = true;
       // D. 타격 이펙트 — 무기별 색
       if (this.vfx) {

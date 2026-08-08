@@ -9,7 +9,7 @@ import {
   SceneLoader
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
-import { WORLD_HALF, resolveCollision } from './ground.js';
+import { WORLD_HALF, resolveCollision, rng } from './ground.js';
 import { loadKitMesh } from '../player/weapons.js';
 
 const RED = Color3.FromHexString('#e24b4a');
@@ -30,6 +30,46 @@ function loadContainer(scene, file) {
     MODEL_CACHE.set(file, pending);
   }
   return pending;
+}
+
+// 접두사(엘리트) — 종류를 늘리는 대신 같은 몹에 성질을 얹는다 (REFERENCE.md §4).
+// 접두사 4종 × 몹 25종이면 조합이 100가지인데, 코드는 여기 표 하나가 전부다.
+//
+// 죽을 때 분열하는 접두사는 넣지 않았다. 개체 수가 도중에 바뀌면 멀티 스냅샷의
+// 인덱스가 어긋난다 — 같은 이유로 접두사 추첨도 난수가 아니라 시드를 쓴다.
+export const AFFIXES = {
+  frenzy: {
+    key: 'frenzy', name: '광폭', color: '#ff8a6a', scale: 1.15,
+    hpMul: 2.0, dmgMul: 1.3, speedMul: 1.35, atkMul: 0.6,
+    desc: '빠르게 달려들고 빠르게 때린다'
+  },
+  regen: {
+    key: 'regen', name: '재생', color: '#8fe6c8', scale: 1.2,
+    hpMul: 2.6, dmgMul: 1.2, regen: 0.02,
+    desc: '가만두면 스스로 아문다'
+  },
+  thorns: {
+    key: 'thorns', name: '가시', color: '#c8a8ff', scale: 1.2,
+    hpMul: 2.4, dmgMul: 1.15, thorns: 0.18,
+    desc: '때린 만큼 되돌려 준다'
+  },
+  stalwart: {
+    key: 'stalwart', name: '강골', color: '#c9d2dc', scale: 1.3,
+    hpMul: 3.2, dmgMul: 1.25, superArmor: true,
+    desc: '밀리지도 뜨지도 않는다'
+  }
+};
+const AFFIX_LIST = Object.values(AFFIXES);
+const ELITE_XP_MUL = 3.2;
+const ELITE_GOLD_MUL = 3.0;
+
+/** 개체가 만들어질 때 한 번만 뽑는다. 같은 존·같은 인덱스면 누가 켜도 같은 결과다 */
+function rollAffix(zone, index, cfg) {
+  if (!zone || cfg.isBoss) return null;      // 보스는 이미 특별하므로 붙이지 않는다
+  const r = rng(zone.seed + index * 7919);
+  const chance = zone.eliteChance !== undefined ? zone.eliteChance : 0.08;
+  if (r() > chance) return null;
+  return AFFIX_LIST[Math.floor(r() * AFFIX_LIST.length)] || null;
 }
 
 // 난이도는 `ring`(초원 중심에서의 거리)으로 가른다. 중심에 가까울수록 약한 것만 나온다.
@@ -453,18 +493,22 @@ function flatMat(scene, name, hex, emissive = false) {
 }
 
 class Monster {
-  constructor(scene, shadow, typeKey, zone = null) {
+  constructor(scene, shadow, typeKey, zone = null, index = 0) {
     this.scene = scene;
     this.typeKey = typeKey;
     this.zone = zone;
+    this.index = index;
     this.cfg = MONSTER_TYPES[typeKey];
+    // 접두사는 개체가 만들어질 때 딱 한 번 정해진다. 난수를 그냥 쓰면 멀티에서
+    // 피어마다 다른 개체가 엘리트가 되므로, 존 시드와 인덱스로 뽑는다
+    this.affix = rollAffix(zone, index, this.cfg);
     this.group = new TransformNode('mon-' + typeKey, scene);
     this.body = new TransformNode('monBody', scene);
     this.body.parent = this.group;
     // body는 피격 스쿼시로 계속 늘었다 줄었다 하므로, 종류별 크기는 한 겹 안쪽에 준다
     const shell = new TransformNode('monShell', scene);
     shell.parent = this.body;
-    shell.scaling.setAll(this.cfg.procScale || 1);
+    shell.scaling.setAll((this.cfg.procScale || 1) * (this.affix ? this.affix.scale : 1));
 
     const eyeMat = sharedFlatMat(scene, 'eye', '#222222', true);
 
@@ -479,7 +523,7 @@ class Monster {
       this._loadModel(shadow);
     } else if (this.cfg.proc === 'ghost') {
       // 원귀 계열 — 색과 크기만 바꿔 변종을 만든다 (에셋 추가 없음)
-      const skin = this.cfg.procColor || '#dfe9ff';
+      const skin = this._skin(this.cfg.procColor || '#dfe9ff');
       this.flashMat = new StandardMaterial('ghostMat', scene);
       this.flashMat.diffuseColor = Color3.FromHexString(skin);
       this.flashMat.emissiveColor = Color3.FromHexString(this.cfg.procGlow || '#2a3a6a');
@@ -507,7 +551,7 @@ class Monster {
       }
     } else {
       // 도깨비 계열 — 마찬가지로 색·크기 변종
-      const skin = this.cfg.procColor || '#a04a38';
+      const skin = this._skin(this.cfg.procColor || '#a04a38');
       this.flashMat = new StandardMaterial('dokkaebiMat', scene);
       this.flashMat.diffuseColor = Color3.FromHexString(skin);
       this.flashMat.specularColor = new Color3(0, 0, 0);
@@ -579,6 +623,12 @@ class Monster {
 
     // 스탯은 개체가 들고 있는다 — 같은 종이라도 존과 위치에 따라 세기가 달라진다
     this.level = 1;
+    this.speedMul = 1;
+    this.atkMul = 1;
+    this.regenRate = 0;
+    this.thorns = 0;
+    this.superArmor = !!this.cfg.superArmor;
+    this.displayName = this.cfg.name;
     this.maxHp = this.cfg.hp;
     this.damage = this.cfg.damage;
     this.xpValue = this.cfg.xp;
@@ -611,7 +661,7 @@ class Monster {
     const container = await loadContainer(this.scene, m.file);
     if (this.disposed) return;
     // 색을 갈아입힐 때만 재질을 복제한다 — 나머지는 파일 하나의 재질을 공유한다
-    const inst = container.instantiateModelsToScene((name) => name, !!m.tint);
+    const inst = container.instantiateModelsToScene((name) => name, !!m.tint || !!this.affix);
     const rootMesh = inst.rootNodes[0];
     // 이 아래로는 언제든 걷어내야 할 수 있으므로 정리 함수를 미리 잡아둔다
     const bail = () => {
@@ -626,7 +676,7 @@ class Monster {
 
     const { min, max } = rootMesh.getHierarchyBoundingVectors(true);
     const h = max.y - min.y;
-    const scale = m.height / h;
+    const scale = (m.height / h) * (this.affix ? this.affix.scale : 1);
     holder.scaling.setAll(scale);
     holder.position.y = -min.y * scale;
     holder.rotation.y = m.yaw || 0;
@@ -636,7 +686,12 @@ class Monster {
     const wanted = variants
       ? variants[Math.floor(Math.random() * variants.length)]
       : (m.props || []);
-    const tint = m.tint ? Color3.FromHexString(m.tint) : null;
+    // 존 티어링 색과 접두사 색을 겹쳐 물들인다
+    let tint = m.tint ? Color3.FromHexString(m.tint) : null;
+    if (this.affix) {
+      const at = Color3.FromHexString(this.affix.color);
+      tint = tint ? tint.multiply(at) : at;
+    }
     const tinted = new Set();
     for (const mesh of rootMesh.getChildMeshes(false)) {
       if (shadow && mesh.getTotalVertices && mesh.getTotalVertices() > 0) shadow.addShadowCaster(mesh);
@@ -715,20 +770,45 @@ class Monster {
     return dur;
   }
 
+  /** 절차적 몬스터의 살빛 — 접두사가 붙으면 그 색을 섞는다 */
+  _skin(hex) {
+    if (!this.affix) return hex;
+    return Color3.FromHexString(hex)
+      .scale(0.55)
+      .add(Color3.FromHexString(this.affix.color).scale(0.55))
+      .toHexString();
+  }
+
   /** 이름표에 레벨을 그린다 — 보스는 눈에 띄게 */
   _drawLevel() {
     const g = this.levelTex.getContext();
     g.clearRect(0, 0, 128, 32);
-    g.font = 'bold 22px sans-serif';
+    g.font = 'bold 20px sans-serif';
     g.textAlign = 'center';
-    g.fillStyle = this.cfg.isBoss ? '#ffb03a' : '#e8e2d0';
-    g.fillText(`Lv.${this.level}`, 64, 24);
+    if (this.affix) {
+      g.fillStyle = this.affix.color;
+      g.fillText(`Lv.${this.level} ${this.affix.name}`, 64, 23);
+    } else {
+      g.fillStyle = this.cfg.isBoss ? '#ffb03a' : '#e8e2d0';
+      g.fillText(`Lv.${this.level}`, 64, 23);
+    }
     this.levelTex.update();
   }
 
   placeRandom() {
-    const [rMin, rMax] = this.cfg.ring;
     const angle = Math.random() * Math.PI * 2;
+    if (this.rift) {
+      // 균열에서 스며 나온다 — 구멍 둘레에 흩어지고 레벨은 균열이 정한다
+      const rr = Math.sqrt(Math.random()) * this.rift.radius;
+      this.group.position.set(
+        Math.max(-WORLD_HALF, Math.min(WORLD_HALF, this.rift.x + Math.cos(angle) * rr)),
+        0,
+        Math.max(-WORLD_HALF, Math.min(WORLD_HALF, this.rift.z + Math.sin(angle) * rr))
+      );
+      this._applyLevel(null, this.rift.level);
+      return;
+    }
+    const [rMin, rMax] = this.cfg.ring;
     const radius = rMin + Math.random() * (rMax - rMin);
     this.group.position.set(
       Math.max(-WORLD_HALF, Math.min(WORLD_HALF, Math.cos(angle) * radius)),
@@ -743,25 +823,43 @@ class Monster {
    * 존의 레벨 구간과 중심으로부터의 거리로 개체 레벨을 정하고 배율만 곱한다.
    * MONSTER_TYPES의 숫자는 손으로 맞춘 균형이라 건드리지 않는다.
    */
-  _applyLevel(ringRatio) {
+  _applyLevel(ringRatio, fixedLevel = null) {
     const zone = this.zone;
     if (!zone || !zone.level) return;
     const [lo, hi] = zone.level;
-    const lv = Math.max(1, Math.round(lo + (hi - lo) * Math.min(1, Math.max(0, ringRatio))));
+    const lv = fixedLevel !== null
+      ? Math.max(1, fixedLevel)
+      : Math.max(1, Math.round(lo + (hi - lo) * Math.min(1, Math.max(0, ringRatio))));
     this.level = lv;
     const k = lv - 1;
-    this.maxHp = Math.round(this.cfg.hp * (1 + 0.35 * k));
-    this.damage = Math.round(this.cfg.damage * (1 + 0.18 * k));
-    this.xpValue = Math.round(this.cfg.xp * (1 + 0.30 * k));
-    const gm = 1 + 0.25 * k;
+    const a = this.affix;
+    this.maxHp = Math.round(this.cfg.hp * (1 + 0.35 * k) * (a ? a.hpMul : 1));
+    this.damage = Math.round(this.cfg.damage * (1 + 0.18 * k) * (a ? a.dmgMul : 1));
+    this.xpValue = Math.round(this.cfg.xp * (1 + 0.30 * k) * (a ? ELITE_XP_MUL : 1));
+    const gm = (1 + 0.25 * k) * (a ? ELITE_GOLD_MUL : 1);
     this.goldRange = [Math.round(this.cfg.gold[0] * gm), Math.round(this.cfg.gold[1] * gm)];
-    this.jellyCount = this.cfg.jelly + Math.floor(k / 6);
+    this.jellyCount = this.cfg.jelly + Math.floor(k / 6) + (a ? 2 : 0);
+    // 접두사가 주는 성질
+    this.speedMul = a && a.speedMul ? a.speedMul : 1;
+    this.atkMul = a && a.atkMul ? a.atkMul : 1;
+    this.regenRate = a && a.regen ? a.regen : 0;
+    this.thorns = a && a.thorns ? a.thorns : 0;
+    this.superArmor = !!this.cfg.superArmor || !!(a && a.superArmor);
+    this.displayName = a ? `${a.name} ${this.cfg.name}` : this.cfg.name;
     this.hp = this.maxHp;
     if (this.levelTex) this._drawLevel();
   }
 
   setVisible(v) {
     this.group.setEnabled(v);
+  }
+
+  /** 같은 균열에서 지금 몇 마리가 나와 있는지 */
+  _riftAlive() {
+    if (!this.rift || !this.rift._members) return 0;
+    let n = 0;
+    for (const m of this.rift._members) if (!m.dead) n++;
+    return n;
   }
 
   /** 존을 바꿀 때 통째로 걷어낸다 */
@@ -779,14 +877,14 @@ class Monster {
     this.flashMat.diffuseColor.copyFrom(RED);
     this.body.scaling.set(1.18, 0.45, 1.18);
     // 슈퍼아머(보스): 밀리지도, 뜨지도 않는다
-    if (dir && !this.cfg.superArmor) {
+    if (dir && !this.superArmor) {
       this.knock.copyFromFloats(dir.x, 0, dir.z);
       this.knock.scaleInPlace(knock);
     }
-    if (knockUp > 0 && !this.cfg.superArmor) this.velY = Math.max(this.velY, knockUp);
+    if (knockUp > 0 && !this.superArmor) this.velY = Math.max(this.velY, knockUp);
     if (this.hp <= 0) {
       this.dead = true;
-      this.respawnT = this.cfg.respawn || RESPAWN_TIME;
+      this.respawnT = this.rift ? this.rift.interval : (this.cfg.respawn || RESPAWN_TIME);
       this.pendingAtk = null;
       // 사망 연출: 막타 방향으로 시체가 날아간다 (PHYSICS.md §2-4)
       this.deathT = 0.55;
@@ -803,7 +901,7 @@ class Monster {
       return true;
     }
     // 슈퍼아머는 피격 모션으로 공격이 끊기지 않는다
-    if (!this.cfg.superArmor) this.playOneShot('hit', 1.6);
+    if (!this.superArmor) this.playOneShot('hit', 1.6);
     return false;
   }
 
@@ -846,7 +944,11 @@ class Monster {
         }
       }
       this.respawnT -= delta;
+      // 봉인된 균열에서는 더 나오지 않는다
+      if (this.rift && this.rift.sealed) return;
       if (this.respawnT <= 0) {
+        // 같은 균열에서 이미 상한만큼 나와 있으면 기다린다 (성능 예산 = 동시 상한)
+        if (this.rift && this._riftAlive() >= this.rift.cap) { this.respawnT = 1.5; return; }
         this.dead = false;
         this.hp = this.maxHp;
         this.stunT = 0;
@@ -860,6 +962,10 @@ class Monster {
       return;
     }
 
+    // 재생 접두사 — 가만두면 차오른다
+    if (this.regenRate > 0 && this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + this.maxHp * this.regenRate * delta);
+    }
     if (this.flashT > 0) {
       this.flashT -= delta;
       if (this.flashT <= 0) {
@@ -938,19 +1044,19 @@ class Monster {
       if (rng) {
         // 원거리형: 사거리 안이면 멈추고, 너무 붙으면 뒷걸음질친다
         if (dist > this.cfg.attackRange * 0.85) {
-          pos.x += nx * this.cfg.speed * slow * delta;
-          pos.z += nz * this.cfg.speed * slow * delta;
+          pos.x += nx * this.cfg.speed * this.speedMul * slow * delta;
+          pos.z += nz * this.cfg.speed * this.speedMul * slow * delta;
           this._moveState = 'run';
         } else if (dist < rng.keepDistance) {
-          pos.x -= nx * this.cfg.speed * 0.85 * delta;
-          pos.z -= nz * this.cfg.speed * 0.85 * delta;
+          pos.x -= nx * this.cfg.speed * this.speedMul * 0.85 * delta;
+          pos.z -= nz * this.cfg.speed * this.speedMul * 0.85 * delta;
           this._moveState = 'walk';
         } else {
           this._moveState = 'idle';
         }
       } else if (dist > this.cfg.attackRange * 0.8) {
-        pos.x += nx * this.cfg.speed * slow * delta;
-        pos.z += nz * this.cfg.speed * slow * delta;
+        pos.x += nx * this.cfg.speed * this.speedMul * slow * delta;
+        pos.z += nz * this.cfg.speed * this.speedMul * slow * delta;
         this._moveState = 'run';
       } else {
         this._moveState = 'idle';
@@ -977,7 +1083,7 @@ class Monster {
         } else if (dist < this.cfg.attackRange + 1 && this.attackT <= 0) {
           this.patIndex = ((this.patIndex || 0) + 1) % this.cfg.patterns.length;
           const pat = this.cfg.patterns[this.patIndex];
-          this.attackT = ATTACK_INTERVAL * 1.9;
+          this.attackT = ATTACK_INTERVAL * 1.9 * this.atkMul;
           this.attackAnim = 0.3;
           this.playOneShot(pat.clip, 1);
           this.pendingAtk = { pattern: pat, t: pat.windup };
@@ -986,7 +1092,7 @@ class Monster {
         // 원거리형: 투사체를 쏜다 (판정은 ProjectileManager가 처리)
         if (dist < this.cfg.attackRange && this.attackT <= 0 && this.projectiles) {
           const rng = this.cfg.ranged;
-          this.attackT = rng.interval;
+          this.attackT = rng.interval * this.atkMul;
           this.attackAnim = 0.3;
           this.playOneShot('attack', 1.2);
           this.projectiles.spawnHostile(
@@ -996,7 +1102,7 @@ class Monster {
           );
         }
       } else if (dist < this.cfg.attackRange && this.attackT <= 0) {
-        this.attackT = ATTACK_INTERVAL;
+        this.attackT = ATTACK_INTERVAL * this.atkMul;
         this.attackAnim = 0.3;
         this.playOneShot('attack', 1.3);
         target.takeDamage(this.damage, { x: nx, z: nz });
@@ -1065,17 +1171,36 @@ export class MonsterManager {
    * 존 하나의 몬스터를 세운다. 이전 존은 통째로 걷어낸다.
    * GLB는 파일당 한 번만 파싱하는 캐시에 남아 있으므로 다시 오갈 때 재파싱이 없다.
    */
-  load(zone) {
+  load(zone, sealedIds = []) {
     this.dispose();
     this.zone = zone;
+    // 균열 상태는 매니저가 들고 있는다 (봉인은 저장되어 다음에도 유지된다)
+    this.rifts = (zone.rifts || []).map((r) => ({ ...r, sealed: sealedIds.includes(r.id) }));
     // 스폰 순서가 곧 인덱스다 — 멀티 스냅샷이 인덱스 기반이라 양쪽이 같아야 한다
     for (const [type, n] of Object.entries(zone.spawns)) {
       if (!MONSTER_TYPES[type]) continue;
       for (let i = 0; i < n; i++) {
-        this.list.push(new Monster(this.scene, this.shadow, type, zone));
+        const m = new Monster(this.scene, this.shadow, type, zone, this.list.length);
+        // 이 종류를 뿜는 균열에 나눠 붙인다. 없으면 예전처럼 링에 흩뿌린다
+        const owners = this.rifts.filter((r) => r.types.includes(type));
+        if (owners.length) {
+          const rift = owners[this.list.length % owners.length];
+          m.rift = rift;
+          (rift._members = rift._members || []).push(m);
+          m.placeRandom();          // 균열이 정해졌으니 자리와 레벨을 다시 잡는다
+        }
+        this.list.push(m);
       }
     }
     if (this.projectiles) this.setProjectiles(this.projectiles);
+  }
+
+  /** 균열을 봉인한다 — 그 구멍에서 더는 나오지 않는다 */
+  sealRift(rift) {
+    const r = this.rifts && this.rifts.find((x) => x.id === rift.id);
+    if (!r || r.sealed) return false;
+    r.sealed = true;
+    return true;
   }
 
   dispose() {

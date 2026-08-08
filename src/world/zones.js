@@ -19,6 +19,7 @@ export const ZONES = {
     trees: 34,
     rocks: 14,
     hasNpc: true,             // 사당 마을 — 청운·소하가 있는 시작 구역
+    eliteChance: 0.07,        // 접두사가 붙을 확률 (구역이 험할수록 높다)
     start: { x: 0, z: 0 },
     palette: {
       ground: { base: '#3a6136', shades: ['#35603f', '#456f41', '#2f5a34', '#4a7a46', '#3a6538'] },
@@ -40,6 +41,19 @@ export const ZONES = {
     exits: [
       { to: 'forest', x: 78, z: 0, needLevel: 8, label: '안개 삼림',
         arrive: { x: -70, z: 0 } }
+    ],
+    // 귀문 균열 (REFERENCE.md §5) — 마물이 스며 나오는 구멍.
+    // 균열마다 소환 종류·속도·동시 상한·레벨을 따로 준다. 봉인하면 그 구멍은 멎는다.
+    rifts: [
+      { id: 'g1', x: 26, z: -22, radius: 12, level: 2, interval: 8, cap: 6,
+        types: ['wisp', 'slime', 'minion', 'frostWisp'] },
+      { id: 'g2', x: -34, z: 30, radius: 14, level: 5, interval: 11, cap: 6,
+        types: ['fox', 'mushroom', 'blueOni', 'bandit', 'banditArcher'] },
+      { id: 'g3', x: 54, z: 46, radius: 16, level: 7, interval: 14, cap: 6,
+        types: ['bone', 'boneRogue', 'boneMage', 'boneArcher', 'hexGhost', 'caster',
+          'hoodedRogue', 'whiteFox', 'firewitch'] },
+      { id: 'g4', x: -62, z: -52, radius: 16, level: 8, interval: 18, cap: 5,
+        types: ['darkMinion', 'redOni', 'ironKnight', 'boneCaptain', 'ogre'] }
     ]
   },
 
@@ -55,6 +69,7 @@ export const ZONES = {
     trees: 96,                // 숲이므로 나무를 훨씬 빽빽하게
     rocks: 8,
     hasNpc: false,
+    eliteChance: 0.14,
     start: { x: -70, z: 0 },
     palette: {
       ground: { base: '#2b3f30', shades: ['#273a2c', '#334a36', '#223528', '#3a5540', '#2a4232'] },
@@ -70,9 +85,24 @@ export const ZONES = {
     exits: [
       { to: 'grassland', x: -78, z: 0, needLevel: 0, label: '귀곡의 초원',
         arrive: { x: 70, z: 0 } }
+    ],
+    rifts: [
+      { id: 'f1', x: -30, z: 28, radius: 15, level: 9, interval: 9, cap: 7,
+        types: ['fox', 'whiteFox', 'frostWisp', 'hexGhost'] },
+      { id: 'f2', x: 34, z: -30, radius: 16, level: 12, interval: 12, cap: 7,
+        types: ['hoodedRogue', 'boneRogue', 'boneArcher', 'boneMage', 'caster',
+          'bandit', 'banditArcher'] },
+      { id: 'f3', x: 58, z: 52, radius: 16, level: 15, interval: 16, cap: 6,
+        types: ['firewitch', 'darkMinion', 'bone', 'ironKnight', 'boneCaptain', 'ogre'] }
     ]
   }
 };
+
+// 봉인 비용(혼백)과 보상 — 균열 레벨에 비례한다
+export const SEAL_COST = 10;
+export function sealReward(rift) {
+  return Math.round(60 + rift.level * 45);
+}
 
 export const ZONE_ORDER = Object.keys(ZONES);
 export const FIRST_ZONE = 'grassland';

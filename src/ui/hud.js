@@ -156,7 +156,7 @@ export function setBossBar(boss) {
     return;
   }
   el.style.display = 'block';
-  document.getElementById('boss-name').firstChild.textContent = `${boss.cfg.name} `;
+  document.getElementById('boss-name').firstChild.textContent = `${boss.displayName || boss.cfg.name} `;
   document.getElementById('boss-hp').style.width =
     `${Math.max(0, (boss.hp / boss.maxHp) * 100)}%`;
   document.getElementById('boss-hptxt').textContent =

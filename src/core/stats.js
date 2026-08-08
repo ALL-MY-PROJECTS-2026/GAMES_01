@@ -7,7 +7,7 @@ import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 // 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -31,6 +31,7 @@ export const stats = {
   owned: { punch: true, sword: true },
   zone: 'grassland',        // 마지막으로 있던 구역
   zonesSeen: { grassland: true },
+  sealed: {},               // 구역별로 봉인한 균열 id 목록
   upgrades: { punch: 0, sword: 0, gun: 0 },
   skillPoints: 0,
   skills: {},
@@ -72,6 +73,7 @@ export function save() {
       owned: { ...stats.owned },
       zone: stats.zone,
       zonesSeen: { ...stats.zonesSeen },
+      sealed: { ...stats.sealed },
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
@@ -103,6 +105,10 @@ function migrate(data) {
     // v4: 구역이 하나뿐이던 시절 → 초원에서 이어 한다
     data.zone = 'grassland';
     data.zonesSeen = { grassland: true };
+  }
+  if (v < 6) {
+    // v5: 귀문 균열이 없던 시절 → 봉인한 것 없음
+    data.sealed = {};
   }
   data.version = SAVE_VERSION;
   return data;
@@ -173,7 +179,19 @@ export function importSave(file) {
 /** 지형을 세우기 전에 필요하므로 bindPlayer보다 먼저 읽는다 */
 export function loadZoneKey() {
   const data = load();
+  if (data && data.sealed) Object.assign(stats.sealed, data.sealed);
   return (data && data.zone) || 'grassland';
+}
+
+/** 봉인한 균열은 저장된다 — 다음에 켜도 그 구멍은 멎어 있다 */
+export function sealedIn(zoneKey) {
+  return stats.sealed[zoneKey] || [];
+}
+
+export function markSealed(zoneKey, riftId) {
+  const list = stats.sealed[zoneKey] || (stats.sealed[zoneKey] = []);
+  if (!list.includes(riftId)) list.push(riftId);
+  save();
 }
 
 /** 구역을 옮겼을 때 기록한다 */
@@ -203,6 +221,8 @@ export function bindPlayer(player) {
     stats.zone = data.zone || 'grassland';
     for (const k of Object.keys(stats.zonesSeen)) delete stats.zonesSeen[k];
     Object.assign(stats.zonesSeen, data.zonesSeen || { grassland: true });
+    for (const k of Object.keys(stats.sealed)) delete stats.sealed[k];
+    Object.assign(stats.sealed, data.sealed || {});
     Object.assign(stats.upgrades, data.upgrades || {});
     stats.skills = data.skills || {};
     // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급

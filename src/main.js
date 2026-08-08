@@ -2,7 +2,7 @@ import { createScene } from './core/scene.js';
 import { Input } from './core/input.js';
 import { initPhysics, addStaticWorld } from './core/physics.js';
 import { buildWorld } from './world/ground.js';
-import { zoneOf } from './world/zones.js';
+import { zoneOf, SEAL_COST, sealReward } from './world/zones.js';
 import { MonsterManager } from './world/monsters.js';
 import { NPCManager } from './world/npcs.js';
 import { DropManager } from './world/drops.js';
@@ -12,7 +12,8 @@ import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
 import { CHARACTERS } from './core/characters.js';
 import {
-  bindPlayer, addXp, addGold, addJelly, useJelly, stats, grantWeapon, loadZoneKey, setZone
+  bindPlayer, addXp, addGold, addJelly, useJelly, stats, grantWeapon, loadZoneKey, setZone,
+  sealedIn, markSealed
 } from './core/stats.js';
 import { Player } from './player/player.js';
 import { CompanionManager } from './player/companions.js';
@@ -63,7 +64,8 @@ async function boot() {
   const player = new Player(scene, obstacles, shadow, charKey);
   player.group.position.set(zone.start.x, 0, zone.start.z);
   loadingStep('원귀를 깨우는 중…');
-  const monsters = new MonsterManager(scene, obstacles, shadow, zone);
+  const monsters = new MonsterManager(scene, obstacles, shadow);
+  monsters.load(zone, sealedIn(zone.key));
   const npcs = new NPCManager(scene, obstacles, shadow);
   // 사당 마을(청운·소하)은 초원에만 있다
   for (const npc of npcs.list) npc.group.setEnabled(!!zone.hasNpc);
@@ -121,6 +123,64 @@ async function boot() {
   }
   buildPortals();
 
+  // ── 귀문 균열 ─────────────────────────────────────────────
+  // 마물이 스며 나오는 구멍. 혼백을 바쳐 봉인하면 그 구멍은 멎는다 (REFERENCE.md §5)
+  let riftMeshes = [];
+  function buildRifts() {
+    for (const r of riftMeshes) r.mesh.dispose();
+    riftMeshes = [];
+    for (const rift of (monsters.rifts || [])) {
+      const mesh = MeshBuilder.CreateCylinder(
+        'rift', { diameterTop: 4.2, diameterBottom: 1.2, height: 5, tessellation: 16 }, scene
+      );
+      const mat = new StandardMaterial('riftMat' + rift.id, scene);
+      mat.diffuseColor = new Color3(0, 0, 0);
+      mat.disableLighting = true;
+      mat.backFaceCulling = false;
+      mat.alpha = 0.5;
+      mesh.material = mat;
+      mesh.position.set(rift.x, 2.5, rift.z);
+      mesh.isPickable = false;
+      riftMeshes.push({ mesh, mat, rift });
+    }
+    paintRifts();
+  }
+  function paintRifts() {
+    for (const r of riftMeshes) {
+      r.mat.emissiveColor = Color3.FromHexString(r.rift.sealed ? '#6b7a6b' : '#b06cff');
+      r.mat.alpha = r.rift.sealed ? 0.18 : 0.5;
+    }
+  }
+  buildRifts();
+
+  /**
+   * 균열 봉인 — 혼백을 바치면 그 구멍이 멎고 경험치를 받는다.
+   * 파밍할 구멍만 남기고 지나갈 곳은 막는 선택이 성립한다 (REFERENCE.md §5).
+   */
+  function sealRift(rift) {
+    // 봉인은 리스폰을 바꾸는데 그 계산은 호스트만 한다 — 비호스트가 하면 혼백만 날린다
+    if (net.connected && !net.isHost) {
+      showToast('봉인은 방장만 할 수 있습니다', '#e24b4a');
+      return;
+    }
+    if (stats.items.jelly < SEAL_COST) {
+      showToast(`혼백이 모자랍니다 (${stats.items.jelly}/${SEAL_COST})`, '#e24b4a');
+      return;
+    }
+    if (!monsters.sealRift(rift)) return;
+    addJelly(-SEAL_COST);
+    const xp = sealReward(rift);
+    addXp(xp);
+    paintRifts();
+    player.playAction('interact');
+    sfx.levelup();
+    vfx.circle({ x: rift.x, z: rift.z }, { radius: 4.5, color: '#b06cff', dur: 1.6 });
+    vfx.flare({ x: rift.x, z: rift.z }, { key: 'symbol', size: 5, color: '#e8d8a8',
+      dur: 1.4, grow: 1.2, y: 1.2 });
+    showToast(`귀문 균열을 봉인했습니다 — 경험치 +${xp}`, '#b06cff');
+    markSealed(zone.key, rift.id);
+  }
+
   /** 구역을 갈아끼운다 — 씬은 그대로 두고 지형·몬스터·물리만 바꾼다 */
   let switching = false;
   async function enterZone(key, arrive) {
@@ -144,9 +204,10 @@ async function boot() {
     world = buildWorld(scene, shadow, next);
     obstacles.push(...world.obstacles);
     worldPhys = addStaticWorld(scene, world.ground, obstacles);
-    monsters.load(next);
+    monsters.load(next, sealedIn(next.key));
     monsters.setProjectiles(projectiles);
     buildPortals();
+    buildRifts();
 
     // 사당 마을(청운·소하)은 초원에만 있다
     for (const npc of npcs.list) npc.group.setEnabled(!!next.hasNpc);
@@ -564,15 +625,31 @@ async function boot() {
       }
     }
 
+    // 균열 — 가까이 가면 봉인할 수 있다
+    let nearRift = null;
+    for (const r of riftMeshes) {
+      if (!r.rift.sealed) r.mesh.rotation.y -= d * 1.1;
+      const dist = Math.hypot(r.mesh.position.x - player.group.position.x,
+                              r.mesh.position.z - player.group.position.z);
+      if (dist < 5 && (!nearRift || dist < nearRift.dist)) nearRift = { ...r, dist };
+    }
+
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
       else if (isDialogOpen()) advanceDialog();
+      else if (nearRift && !nearRift.rift.sealed) sealRift(nearRift.rift);
       else if (nearNpc && nearNpc.role === 'merchant') { player.playAction('interact'); openShop(); }
       else if (nearNpc) { player.playAction('interact'); openDialog(nearNpc); }
     }
     const talking = isDialogOpen() || isShopOpen();
-    if (!talking && nearPortal) {
+    if (!talking && nearRift) {
+      const rf = nearRift.rift;
+      talkHint.innerHTML = rf.sealed
+        ? `<b>봉인된 귀문 균열</b> — 더는 마물이 나오지 않습니다`
+        : `<b>E</b> 귀문 균열 봉인 (Lv.${rf.level} · 혼백 ${SEAL_COST}개)`;
+      talkHint.style.display = 'block';
+    } else if (!talking && nearPortal) {
       const ex = nearPortal.exit;
       const ok = stats.level >= ex.needLevel;
       talkHint.innerHTML = ok

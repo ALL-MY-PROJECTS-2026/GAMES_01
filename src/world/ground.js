@@ -28,7 +28,7 @@ export function resolveCollision(pos, radius, obstacles) {
  * 멀티에서는 피어마다 나무 위치가 어긋나 한쪽만 막히는 일이 생긴다.
  * 존마다 고정 시드를 주면 누가 언제 켜도 같은 지형이 나온다.
  */
-function rng(seed) {
+export function rng(seed) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
