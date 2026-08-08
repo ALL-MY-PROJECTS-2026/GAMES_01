@@ -42,6 +42,22 @@ export const SPELLS = {
     baseDamage: 18, perLevel: 2, radius: 5.5, knock: 26, knockUp: 6,
     slowDuration: 2.5, slowMul: 0.45
   },
+  // 치유술 — 원작 회복술(REFERENCE §3-10). 규칙 6대로 술법 스탯을 타지 않는다.
+  // 누가 들어도 같은 양을 회복하므로 협동에서 역할이 갈린다
+  healWard: {
+    key: 'healWard', cls: 'mage', name: '치유술', icon: '💚',
+    desc: '상처를 아물게 한다',
+    cost: 40, cd: 9, kind: 'heal', fx: 'heal', color: '#8fe6c8',
+    healFlat: 45, healPerLevel: 4
+  },
+  // 석화술 — 범위 무력화. 저코스트도 광범위도 아니고 피해도 낮다(제어 전용)
+  petrify: {
+    key: 'petrify', cls: 'mage', name: '석화술', icon: '🗿',
+    desc: '주변을 굳혀 움직임을 멈춘다',
+    cost: 60, cd: 15, kind: 'nova', fx: 'stone', color: '#c8c0a8',
+    baseDamage: 8, perLevel: 1, radius: 5.0, knock: 0, knockUp: 0,
+    slowDuration: 0, slowMul: 1, stunDuration: 2.6
+  },
   // 광역 + 다단이므로 이동추종 없음 + 최고 코스트로 제약
   meteorRain: {
     key: 'meteorRain', cls: 'mage', name: '유성우', icon: '☄️',
@@ -76,6 +92,22 @@ export const SPELLS = {
     desc: '한동안 공격이 매서워진다',
     cost: 35, cd: 16, kind: 'buff', fx: 'cry', color: '#ffb03a',
     duration: 10, damageBonus: 0.35
+  },
+  // 금강불괴 — 원작의 근접 무적(REFERENCE §3-9). 원작은 후반 위협이 술법인데
+  // 근접만 막아 실패했다(규칙 3). 그래서 물리 피해 대폭 감소 + 넉백 면역으로 바꿨다
+  ironBody: {
+    key: 'ironBody', cls: 'knight', name: '금강불괴', icon: '🗿',
+    desc: '몸이 굳어 물리 공격을 거의 받지 않는다',
+    cost: 55, cd: 22, kind: 'buff', fx: 'iron', color: '#c9d2dc',
+    duration: 6, physMul: 0.2, noKnock: true
+  },
+  // 화벽술 — 원작 화벽술(REFERENCE §3-2). 이동추종 + 다단이라 규칙 1에 걸린다
+  // → 나머지 둘(저코스트·광범위)을 포기해 고코스트 · 좁은 반경으로 잡았다
+  flameWall: {
+    key: 'flameWall', cls: 'knight', name: '화벽술', icon: '🔥',
+    desc: '몸을 두른 불길이 따라다니며 태운다',
+    cost: 60, cd: 18, kind: 'aurafield', fx: 'firewall', color: '#ff8a3a',
+    baseDamage: 7, perLevel: 1.2, radius: 3.0, duration: 6, tickInterval: 0.5, knock: 3
   },
   groundSlam: {
     key: 'groundSlam', cls: 'knight', name: '지진격', icon: '🪨',
@@ -112,6 +144,25 @@ export const SPELLS = {
     baseDamage: 18, perLevel: 2, knock: 4, range: 9, maxHits: 2, falloff: 1,
     slowDuration: 4, slowMul: 0.35
   },
+  // 정령시 — 원작 정령술(REFERENCE §3-4)의 유도 성질. 빗나가지 않는 대신 느리다
+  spiritArrow: {
+    key: 'spiritArrow', cls: 'ranger', name: '정령시', icon: '🦋',
+    desc: '스스로 적을 쫓는 화살을 놓는다',
+    // 선회 반경 = 속도 / 선회율. 술법탄 기본 속도(42)로는 표적을 스치고 지나가므로
+    // 속도를 크게 낮추고 대신 오래 날며 넉넉히 판정한다
+    cost: 34, cd: 3.2, kind: 'homing', fx: 'spirit', color: '#9fe4ff',
+    baseDamage: 26, perLevel: 3, knock: 8,
+    homing: 7, speedMul: 0.4, lifeMul: 2.6, hitR: 1.1, count: 2
+  },
+  // 봉인시 — 원작 봉인술(REFERENCE §3-1)을 단일 대상 무력화로 옮겼다.
+  // 석화술보다 범위가 없는 대신 훨씬 오래 묶는다
+  sealShot: {
+    key: 'sealShot', cls: 'ranger', name: '봉인시', icon: '📿',
+    desc: '부적을 박아 한 마리를 오래 묶는다',
+    cost: 30, cd: 10, kind: 'pierce', fx: 'seal', color: '#e8d8a8',
+    baseDamage: 12, perLevel: 1.5, knock: 0, range: 10, maxHits: 1, falloff: 1,
+    stunDuration: 4.5
+  },
   windStep: {
     key: 'windStep', cls: 'ranger', name: '풍신보', icon: '🍃',
     desc: '뒤로 물러서며 발이 빨라진다',
@@ -120,6 +171,22 @@ export const SPELLS = {
     hasteDuration: 5, hasteMul: 1.4
   }
 };
+
+// 시전 자세 — kind마다 다른 클립을 쓴다 (전부 같은 동작이면 15종이 구분되지 않는다)
+//   shoot  = 앞으로 쏘는 동작   long = 길게 끌어 지점에 꽂는 동작
+//   raise  = 위로 들어올리는 동작(버프)   hold = 모아서 터뜨리는 동작(자기중심)
+const CAST_BY_KIND = {
+  bolt: 'cast', chain: 'cast', pierce: 'shoot', spread: 'shoot', homing: 'cast',
+  ground: 'castLong', rain: 'castLong',
+  buff: 'castRaise', heal: 'castRaise',
+  nova: 'castHold', dash: 'cast', aurafield: 'castHold'
+};
+
+/** 이 술법을 시전할 때 쓸 애니메이션 논리 키 */
+export function castClipOf(spell) {
+  if (!spell) return 'cast';
+  return spell.castClip || CAST_BY_KIND[spell.kind] || 'cast';
+}
 
 export const SPELL_ORDER = Object.keys(SPELLS);
 

@@ -171,7 +171,8 @@ export class ProjectileManager {
     this.spawn(origin, dir, 0, 0, color, kind, true);
   }
 
-  spawn(origin, dir, damage, knock, color = '#ffd666', kind = 'bolt', visual = false) {
+  spawn(origin, dir, damage, knock, color = '#ffd666', kind = 'bolt', visual = false,
+    opts = {}) {
     let mesh;
     if (kind === 'arrow') {
       const template = this.arrowTemplate || this._arrowTemplate();
@@ -187,16 +188,21 @@ export class ProjectileManager {
     }
     mesh.applyFog = false;
     mesh.position.copyFrom(origin);
-    const spd = kind === 'arrow' ? ARROW_SPEED : SPEED;
+    // 유도탄은 느려야 돈다 — 빠르면 선회 반경이 커져 표적을 스치고 지나간다
+    const spd = (kind === 'arrow' ? ARROW_SPEED : SPEED) * (opts.speedMul || 1);
     this.list.push({
       mesh,
       vx: dir.x * spd,
       vz: dir.z * spd,
       dirN: { x: dir.x, z: dir.z },
-      life: kind === 'arrow' ? ARROW_LIFE : LIFE,
+      life: (kind === 'arrow' ? ARROW_LIFE : LIFE) * (opts.lifeMul || 1),
       damage,
       knock,
       visual,
+      // 유도탄은 매 프레임 가장 가까운 적 쪽으로 진행 방향을 조금씩 튼다
+      homing: opts.homing || 0,
+      speed: spd,
+      hitR: opts.hitR || 0.72,
       trailT: kind === 'arrow' ? 0 : undefined
     });
   }
@@ -211,6 +217,29 @@ export class ProjectileManager {
       const p = this.list[i];
       p.life -= delta;
       const pos = p.mesh.position;
+      // 유도 — 가장 가까운 살아있는 적으로 방향을 서서히 돌린다
+      if (p.homing > 0 && !p.visual) {
+        let best = null;
+        let bd = Infinity;
+        for (const m of monsters) {
+          if (m.dead) continue;
+          const d = Math.hypot(m.group.position.x - pos.x, m.group.position.z - pos.z);
+          if (d < bd) { bd = d; best = m; }
+        }
+        if (best && bd < 22) {
+          const tx = (best.group.position.x - pos.x) / bd;
+          const tz = (best.group.position.z - pos.z) / bd;
+          const k = Math.min(1, p.homing * delta);
+          let nx = p.dirN.x + (tx - p.dirN.x) * k;
+          let nz = p.dirN.z + (tz - p.dirN.z) * k;
+          const len = Math.max(0.001, Math.hypot(nx, nz));
+          nx /= len; nz /= len;
+          p.dirN.x = nx; p.dirN.z = nz;
+          p.vx = nx * p.speed;
+          p.vz = nz * p.speed;
+          p.mesh.rotation.y = Math.atan2(nx, nz);
+        }
+      }
       pos.x += p.vx * delta;
       pos.z += p.vz * delta;
 
@@ -234,7 +263,7 @@ export class ProjectileManager {
         if (m.dead) continue;
         const dx = pos.x - m.group.position.x;
         const dz = pos.z - m.group.position.z;
-        if (dx * dx + dz * dz < 0.72 * 0.72 && pos.y < 1.6) {
+        if (dx * dx + dz * dz < p.hitR * p.hitR && pos.y < 1.6) {
           const relayed = this.reportDamage && this.reportDamage(m, p.damage, p.dirN, p.knock, 0);
           const killed = relayed ? false
             : (this.applyDamage

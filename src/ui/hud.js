@@ -1,4 +1,4 @@
-const WEAPON_SLOTS = { punch: 2, sword: 3, gun: 4 };
+import { WEAPONS } from '../player/weapons.js';
 
 let playerName = '이림';
 
@@ -18,41 +18,48 @@ export function setPartyInfo(idx, cfg) {
   p.textContent = cfg.letter;
 }
 
+// 무기는 숫자키로 바꾸지 않는다 — 소지품(I)에서 눌러 장착한다.
+// 퀵바에는 혼백과 '지금 든 무기' 한 칸만 남긴다.
+export const WEAPON_HINT = {
+  punch: '5단 연계 콤보 (잽·잽·훅·어퍼·붕권)',
+  sword: '2단 연계 (찌르기 → 가로베기)',
+  gun: '화살 원거리 사격',
+  dagger: '짧고 빠르다',
+  axe: '무겁게 밀어낸다',
+  greatsword: '두 손 연계 (내려찍기 → 휘돌려베기)',
+  staff: '술법 피해 +30%',
+  twinKnife: '3단 쌍수 연계 — 가장 촘촘하다',
+  throwStar: '던지는 무기 — 석궁보다 짧고 빠르다',
+  battleAxe: '가장 무거운 한 방 — 두 손 연계'
+};
+
 export function initHUD() {
   const bar = document.getElementById('quickbar');
-  for (let i = 1; i <= 8; i++) {
-    const slot = document.createElement('div');
-    slot.className = 'slot';
-    slot.id = `slot-${i}`;
-    slot.innerHTML = `<span>${i}</span>`;
-    bar.appendChild(slot);
-  }
-  const s1 = document.getElementById('slot-1');
-  s1.innerHTML = `<span>1</span><div class="slot-icon">🔮</div><div class="slot-count" id="jelly-count">0</div>`;
-  s1.title = '혼백 (HP +15)';
-
-  const weapons = [
-    [2, '👊', '권법 — 5단 연계 콤보 (잽·잽·훅·어퍼·붕권)'],
-    [3, '🗡️', '퇴마검 — 2단 연계 (찌르기 → 가로베기)'],
-    [4, '🏹', '석궁 — 화살 원거리 사격']
-  ];
-  for (const [i, icon, title] of weapons) {
-    const s = document.getElementById(`slot-${i}`);
-    s.innerHTML = `<span>${i}</span><div class="slot-icon">${icon}</div>`;
-    s.title = title;
-  }
+  bar.innerHTML = `
+    <div class="slot" id="slot-1" title="혼백 (HP +15)">
+      <span>1</span><div class="slot-icon">🔮</div>
+      <div class="slot-count" id="jelly-count">0</div>
+    </div>
+    <div class="slot active" id="slot-weapon">
+      <span>무기</span><div class="slot-icon" id="weapon-icon">👊</div>
+    </div>`;
 }
 
+/** 지금 든 무기를 퀵바에 보여준다 (교체는 소지품에서 한다) */
 export function setActiveWeapon(key) {
-  for (const [w, idx] of Object.entries(WEAPON_SLOTS)) {
-    document.getElementById(`slot-${idx}`).classList.toggle('active', w === key);
-  }
+  const w = WEAPONS[key];
+  const icon = document.getElementById('weapon-icon');
+  const slot = document.getElementById('slot-weapon');
+  if (!w || !icon || !slot) return;
+  icon.textContent = w.icon;
+  slot.title = `${w.name} — ${WEAPON_HINT[key] || ''} (공격력 ${w.damage}) · I 를 눌러 교체`;
+  slot.dataset.weapon = key;
 }
 
+/** 강화 표시 — 지금 든 무기의 것만 퀵바에 띄운다 */
 export function setWeaponUpgrade(key, level) {
-  const idx = WEAPON_SLOTS[key];
-  if (!idx) return;
-  const slot = document.getElementById(`slot-${idx}`);
+  const slot = document.getElementById('slot-weapon');
+  if (!slot || slot.dataset.weapon !== key) return;
   let badge = slot.querySelector('.slot-plus');
   if (!badge) {
     badge = document.createElement('div');
@@ -166,6 +173,19 @@ export function showPickup(item, amount) {
   el.style.borderLeftColor = item.color;
   layer.appendChild(el);
   setTimeout(() => el.remove(), 2200);
+  while (layer.children.length > 5) layer.removeChild(layer.firstChild);
+}
+
+/** 획득 알림 자리에 띄우는 짧은 안내 (무기 해금 등) */
+export function showToast(text, color = '#ffd666') {
+  const layer = document.getElementById('pickup-layer');
+  if (!layer) return;
+  const el = document.createElement('div');
+  el.className = 'pickup';
+  el.textContent = text;
+  el.style.borderLeftColor = color;
+  layer.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
   while (layer.children.length > 5) layer.removeChild(layer.firstChild);
 }
 

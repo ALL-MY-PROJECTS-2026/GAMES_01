@@ -3,12 +3,14 @@ import {
 } from '@babylonjs/core';
 import {
   makeRuneTexture, makeGlowTexture, makeSparkTexture, makeSlashTexture, makeNoiseTexture,
-  makeShockRingTexture, makeFireFieldTexture
+  makeShockRingTexture, makeFireFieldTexture, makeKenneyTextures, PROC_FALLBACK
 } from './vfx_textures.js';
 
 // 마법·타격 이펙트 (STACK.md §9)
 // 규칙: 라이팅 계산 금지 · 깊이 쓰기 끔 · 오브젝트 풀링 · 동시 개수 상한 · 고정 스텝 시계 사용
-const MAX_LIVE = 48;   // 모바일 오버드로우 방어 — 초과 시 가장 오래된 것부터 회수
+// 모바일 오버드로우 방어 — 초과 시 가장 오래된 것부터 회수.
+// 술법 하나가 링·섬광·연기·자국을 겹쳐 쓰면서 조각 수가 늘어 상한을 올렸다.
+const MAX_LIVE = 80;
 
 export function vfxMaterial(scene, name, hex, additive = true) {
   const mat = new StandardMaterial('vfx_' + name, scene);
@@ -44,8 +46,10 @@ export class VFX {
     this.scene = scene;
     this.live = [];   // { mesh, pool, t, dur, kind, ...}
 
-    // 절차적 텍스처 — 단색 도형만으로는 밋밋해서 문양·감쇠를 입힌다
-    this.tex = {
+    // 텍스처 두 벌 — 같은 키를 쓰므로 통째로 갈아끼워 비교할 수 있다 (T 키)
+    //   kenney : Kenney Particle Pack (CC0) 스프라이트 — 기본 (STACK.md §9)
+    //   proc   : 절차적 생성, 다운로드 0KB. 대응이 없는 키는 근사값으로 접힌다
+    const proc = {
       rune: makeRuneTexture(scene),
       glow: makeGlowTexture(scene),
       spark: makeSparkTexture(scene),
@@ -54,6 +58,13 @@ export class VFX {
       shockRing: makeShockRingTexture(scene),
       fireField: makeFireFieldTexture(scene)
     };
+    for (const [key, near] of Object.entries(PROC_FALLBACK)) proc[key] = proc[near];
+    this.texSets = { proc, kenney: makeKenneyTextures(scene) };
+    this.texSet = 'kenney';
+    this.tex = this.texSets.kenney;
+    // 갈아끼울 때 되짚어야 하므로 어떤 재질이 어떤 키를 쓰는지 기억해 둔다
+    this._bound = [];
+    this._sparkSystems = [];
 
     // 지염장 — 머무는 불바다 (얼룩 텍스처, 느리게 회전)
     this.fieldPool = new Pool(scene, (s) => {
@@ -62,8 +73,7 @@ export class VFX {
       f.isPickable = false;
       f.applyFog = false;
       f.material = vfxMaterial(s, 'field' + Math.random(), '#ffffff');
-      f.material.emissiveTexture = this.tex.fireField;
-      f.material.opacityTexture = this.tex.fireField;
+      this._bindTex(f.material, 'fireField');
       f.setEnabled(false);
       return f;
     });
@@ -74,8 +84,7 @@ export class VFX {
       n.isPickable = false;
       n.applyFog = false;
       n.material = vfxMaterial(s, 'nova' + Math.random(), '#ffffff');
-      n.material.emissiveTexture = this.tex.shockRing;
-      n.material.opacityTexture = this.tex.shockRing;
+      this._bindTex(n.material, 'shockRing');
       n.setEnabled(false);
       return n;
     });
@@ -85,8 +94,7 @@ export class VFX {
       d.isPickable = false;
       d.applyFog = false;
       d.material = vfxMaterial(s, 'disc' + Math.random(), '#ffffff');
-      d.material.emissiveTexture = this.tex.slash;
-      d.material.opacityTexture = this.tex.slash;
+      this._bindTex(d.material, 'slash');
       d.setEnabled(false);
       return d;
     });
@@ -96,8 +104,7 @@ export class VFX {
       r.isPickable = false;
       r.applyFog = false;
       r.material = vfxMaterial(s, 'ring' + Math.random(), '#ffffff');
-      r.material.emissiveTexture = this.tex.rune;
-      r.material.opacityTexture = this.tex.rune;
+      this._bindTex(r.material, 'rune');
       r.setEnabled(false);
       return r;
     });
@@ -108,8 +115,7 @@ export class VFX {
       sp.isPickable = false;
       sp.applyFog = false;
       sp.material = vfxMaterial(s, 'aura' + Math.random(), '#ffffff');
-      sp.material.emissiveTexture = this.tex.noise;
-      sp.material.opacityTexture = this.tex.noise;
+      this._bindTex(sp.material, 'noise');
       sp.setEnabled(false);
       return sp;
     });
@@ -127,12 +133,80 @@ export class VFX {
       p.isPickable = false;
       p.applyFog = false;
       p.material = vfxMaterial(s, 'puff' + Math.random(), '#ffffff');
-      p.material.emissiveTexture = this.tex.glow;
-      p.material.opacityTexture = this.tex.glow;
+      this._bindTex(p.material, 'glow');
       p.setEnabled(false);
       return p;
     });
+    // 빛나는 스프라이트 한 장을 아무 그림으로나 쓰는 공용 판 (섬광·소용돌이·문양…)
+    this.flarePool = new Pool(scene, (s) => {
+      const p = MeshBuilder.CreatePlane('vfxFlare', { size: 1 }, s);
+      p.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      p.isPickable = false;
+      p.applyFog = false;
+      p.material = vfxMaterial(s, 'flare' + Math.random(), '#ffffff');
+      this._bindTex(p.material, 'star');
+      p.setEnabled(false);
+      return p;
+    });
+    // 연기·먼지 — 빛나지 않으므로 가산이 아니라 일반 알파로 섞는다
+    this.smokePool = new Pool(scene, (s) => {
+      const p = MeshBuilder.CreatePlane('vfxSmoke', { size: 1 }, s);
+      p.billboardMode = Mesh.BILLBOARDMODE_ALL;
+      p.isPickable = false;
+      p.applyFog = false;
+      p.material = vfxMaterial(s, 'smoke' + Math.random(), '#ffffff', false);
+      this._bindTex(p.material, 'smoke');
+      p.setEnabled(false);
+      return p;
+    });
+    // 바닥에 남는 그을음 자국 — 폭발이 지나간 흔적
+    this.decalPool = new Pool(scene, (s) => {
+      const d = MeshBuilder.CreateDisc('vfxDecal', { radius: 1, tessellation: 24 }, s);
+      d.rotation.x = Math.PI / 2;
+      d.isPickable = false;
+      d.applyFog = false;
+      d.material = vfxMaterial(s, 'decal' + Math.random(), '#ffffff', false);
+      this._bindTex(d.material, 'scorch');
+      d.setEnabled(false);
+      return d;
+    });
+  }
 
+  /** 아무 스프라이트나 한 장 띄워 확대·회전하며 사라지게 한다 */
+  flare(pos, { key = 'star', size = 2, color = '#ffffff', dur = 0.3, grow = 1.6,
+    spin = 0, y = 1.0 } = {}) {
+    const mesh = this.flarePool.take();
+    this._useTex(mesh, key);
+    this._tint(mesh, color);
+    mesh.position.set(pos.x, (pos.y || 0) + y, pos.z);
+    mesh.scaling.setAll(size);
+    mesh.rotation.z = Math.random() * Math.PI * 2;
+    this._push({ mesh, pool: this.flarePool, t: 0, dur, kind: 'flare', base: size, grow, spin });
+  }
+
+  /** 연기 한 덩이 — 떠오르며 흩어진다 */
+  smoke(pos, { size = 1.6, color = '#8a8676', dur = 0.9, rise = 1.2, grow = 2.0 } = {}) {
+    const mesh = this.smokePool.take();
+    this._tint(mesh, color);
+    mesh.position.set(
+      pos.x + (Math.random() - 0.5) * 0.5,
+      (pos.y || 0) + 0.7,
+      pos.z + (Math.random() - 0.5) * 0.5
+    );
+    mesh.scaling.setAll(size);
+    mesh.rotation.z = Math.random() * Math.PI * 2;
+    this._push({ mesh, pool: this.smokePool, t: 0, dur, kind: 'smoke', base: size, grow, rise });
+  }
+
+  /** 바닥 그을음 — 천천히 옅어진다 */
+  scorch(pos, { radius = 2.2, color = '#2a2320', dur = 2.4, key = 'scorch' } = {}) {
+    const mesh = this.decalPool.take();
+    this._useTex(mesh, key);
+    this._tint(mesh, color);
+    mesh.position.set(pos.x, 0.045, pos.z);
+    mesh.scaling.setAll(radius);
+    mesh.rotation.y = Math.random() * Math.PI * 2;
+    this._push({ mesh, pool: this.decalPool, t: 0, dur, kind: 'decal', base: radius });
   }
 
   /** 불티 — 타격·폭발에 흩날리는 파편. 엔진 내장 파티클을 풀로 돌린다 */
@@ -141,6 +215,7 @@ export class VFX {
     if (!ps) {
       ps = new ParticleSystem('vfxSparks', 60, this.scene);
       ps.particleTexture = this.tex.spark;
+      this._sparkSystems.push(ps);
       ps.blendMode = ParticleSystem.BLENDMODE_ADD;
       ps.minLifeTime = 0.18;
       ps.maxLifeTime = 0.42;
@@ -178,6 +253,49 @@ export class VFX {
     this.sparkBusy.push({ ps, t: 0.7 });
   }
 
+  /**
+   * 재질에 텍스처를 물린다. 어떤 키를 쓰는지 재질에 적어두므로
+   * 나중에 세트를 갈아끼우거나(_setTextureSet) 다른 스프라이트로 바꿔도(_useTex) 따라온다.
+   */
+  _bindTex(mat, key) {
+    mat.metadata = { fxKey: key };
+    mat.emissiveTexture = this.tex[key];
+    mat.opacityTexture = this.tex[key];
+    this._bound.push(mat);
+  }
+
+  /** 공용 풀에서 꺼낸 메시에 이번만 다른 스프라이트를 물린다 */
+  _useTex(mesh, key) {
+    const mat = mesh.material;
+    mat.metadata = { fxKey: key };
+    mat.emissiveTexture = this.tex[key];
+    mat.opacityTexture = this.tex[key];
+  }
+
+  /**
+   * 이펙트 텍스처 세트를 통째로 바꾼다 ('proc' | 'kenney').
+   * 이미 만들어진 풀의 재질까지 되짚어야 화면이 바로 바뀐다.
+   */
+  setTextureSet(name) {
+    const set = this.texSets[name];
+    if (!set || name === this.texSet) return this.texSet;
+    this.texSet = name;
+    this.tex = set;
+    for (const mat of this._bound) {
+      const key = mat.metadata && mat.metadata.fxKey;
+      if (!key || !set[key]) continue;
+      mat.emissiveTexture = set[key];
+      mat.opacityTexture = set[key];
+    }
+    for (const ps of this._sparkSystems) ps.particleTexture = set.spark;
+    return name;
+  }
+
+  /** 두 세트를 번갈아 본다 — 어느 쪽이 나은지 눈으로 비교하려고 둔 것 */
+  toggleTextureSet() {
+    return this.setTextureSet(this.texSet === 'proc' ? 'kenney' : 'proc');
+  }
+
   // 알파를 개별로 애니메이션하므로 머티리얼은 메시마다 전용이어야 한다
   _tint(mesh, hex) {
     mesh.material.emissiveColor = Color3.FromHexString(hex);
@@ -192,25 +310,40 @@ export class VFX {
     this.live.push(entry);
   }
 
-  /** A. 바닥 마법진 — 링 2개가 반대로 돈다 */
+  /** A. 바닥 마법진 — 문양이 다른 링 세 겹이 서로 반대로 돈다 */
   circle(pos, { radius = 2, color = '#7fb0ff', dur = 0.9 } = {}) {
-    for (let i = 0; i < 2; i++) {
+    const layers = [
+      { key: 'magicRing', k: 1, spin: 2.4 },
+      { key: 'rune', k: 0.66, spin: -3.2 },
+      { key: 'symbol', k: 0.4, spin: 1.6 }
+    ];
+    for (const l of layers) {
       const mesh = this.ringPool.take();
+      this._useTex(mesh, l.key);
       this._tint(mesh, color);
-      mesh.position.set(pos.x, 0.06 + i * 0.01, pos.z);
-      mesh.scaling.setAll(radius * (i ? 0.66 : 1));
+      mesh.position.set(pos.x, 0.06 + l.k * 0.02, pos.z);
+      mesh.scaling.setAll(radius * l.k);
       mesh.rotation.y = Math.random() * Math.PI;
-      this._push({ mesh, pool: this.ringPool, t: 0, dur, kind: 'circle', spin: i ? -3.2 : 2.4, base: radius * (i ? 0.66 : 1) });
+      this._push({ mesh, pool: this.ringPool, t: 0, dur, kind: 'circle',
+        spin: l.spin, base: radius * l.k });
     }
   }
 
-  /** D. 타격/폭발 — 빌보드 평면을 확대하며 페이드 */
-  burst(pos, { size = 1.6, color = '#ffb03a', dur = 0.32 } = {}) {
+  /** D. 타격/폭발 — 섬광 + 확산 + 연기가 겹쳐야 한 방이 무겁게 읽힌다 */
+  burst(pos, { size = 1.6, color = '#ffb03a', dur = 0.32, heavy = false } = {}) {
     const mesh = this.puffPool.take();
     this._tint(mesh, color);
     mesh.position.set(pos.x, (pos.y || 0) + 0.9, pos.z);
     mesh.scaling.setAll(size * 0.4);
     this._push({ mesh, pool: this.puffPool, t: 0, dur, kind: 'burst', base: size });
+    // 터지는 순간의 날카로운 섬광
+    this.flare(pos, { key: 'muzzle', size: size * 0.9, color, dur: dur * 0.55,
+      grow: 2.2, y: 0.9 });
+    if (heavy) {
+      this.flare(pos, { key: 'star', size: size * 1.4, color, dur: dur * 1.1,
+        grow: 2.4, spin: 3, y: 0.95 });
+      this.smoke(pos, { size: size * 0.7, dur: 0.8, rise: 1.4 });
+    }
   }
 
   /** E. 검기 — 부채꼴이 펼쳐지며 사라진다 */
@@ -254,6 +387,15 @@ export class VFX {
       mesh, pool: this.fieldPool, t: 0, dur, kind: 'field',
       base: radius, color, emberT: 0, pos: { x: pos.x, z: pos.z }
     });
+    // 바닥만으로는 납작해 보인다 — 불길과 연기를 세워 올린다
+    for (let i = 0; i < 4; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * radius * 0.7;
+      const at = { x: pos.x + Math.cos(a) * rr, z: pos.z + Math.sin(a) * rr };
+      this.flare(at, { key: 'flame', size: radius * 0.5, color, dur: dur * 0.6,
+        grow: 1.2, y: 0.9 });
+    }
+    this.scorch(pos, { radius: radius * 0.9, color: '#2a1a12', dur: dur + 1.6 });
   }
 
   /** 빙백진 — 한 번에 확 퍼지는 서릿발 파문 */
@@ -265,6 +407,10 @@ export class VFX {
     this._push({ mesh, pool: this.novaPool, t: 0, dur, kind: 'nova', base: radius });
     // 얼음 파편이 낮게 사방으로 흩어진다
     this.sparks(pos, { count: 30, color, power: 11, size: 0.34, spread: 'flat' });
+    // 갈라지는 얼음판과 냉기 소용돌이를 겹친다
+    this.flare(pos, { key: 'shard', size: radius * 0.9, color, dur: 0.4, grow: 1.9, y: 0.5 });
+    this.flare(pos, { key: 'twirl', size: radius * 0.7, color: '#ffffff', dur: 0.5,
+      grow: 2.1, spin: -4, y: 0.7 });
   }
 
   /** 연쇄 번개 — 두 지점을 잇는 얇은 기둥 */
@@ -301,7 +447,10 @@ export class VFX {
     this.bolt3(from, to, { width: 1.0, color: '#ffe9a8', dur: 0.16 });
     this.bolt3(from, to, { width: 0.5, color, dur: 0.24 });
     this.shockwave(pos, { radius: size * 1.7, color, dur: 0.45 });
-    this.burst(pos, { size, color, dur: 0.34 });
+    this.burst(pos, { size, color, dur: 0.34, heavy: true });
+    this.flare({ x: from.x * 0.35 + to.x * 0.65, z: from.z * 0.35 + to.z * 0.65 },
+      { key: 'flame', size: size * 0.9, color, dur: 0.2, grow: 1.4, y: 6 });
+    this.scorch(pos, { radius: size * 1.3, dur: 3.0 });
     this.sparks({ x: pos.x, y: 0, z: pos.z },
       { count: 18, color, power: 9, size: 0.3, spread: 'up' });
   }
@@ -333,6 +482,8 @@ export class VFX {
       prev = { x: nx, y: ny, z: nz };
     }
     this.sparks({ x: pos.x, y: 0.3, z: pos.z }, { count: 12, color, power: 7, size: 0.22 });
+    this.flare(pos, { key: 'trace', size: 3.4, color, dur: 0.16, grow: 1.1, y: 3.2 });
+    this.flare(pos, { key: 'muzzle', size: 2.2, color: '#ffffff', dur: 0.14, grow: 2.4, y: 0.4 });
   }
 
   /** 선풍참 — 칼바람이 몸을 축으로 여러 겹 돈다 */
@@ -348,6 +499,8 @@ export class VFX {
     }
     this.sparks({ x: pos.x, y: 0.5, z: pos.z },
       { count: 16, color, power: 6, size: 0.22, spread: 'flat' });
+    this.flare(pos, { key: 'twirl', size: radius * 0.8, color, dur: 0.45,
+      grow: 1.8, spin: 9, y: 1.1 });
   }
 
   /** 지진격 — 파문이 겹쳐 퍼지고 돌덩이가 솟는다 */
@@ -370,6 +523,56 @@ export class VFX {
     }
     this.sparks({ x: pos.x, y: 0, z: pos.z },
       { count: 24, color, power: 8, size: 0.3, spread: 'up' });
+    // 흙먼지가 자욱하게 일고 땅에 자국이 남는다
+    for (let i = 0; i < 3; i++) {
+      this.smoke(pos, { size: radius * 0.5, color: '#9a8168', dur: 1.0, rise: 0.9, grow: 2.4 });
+    }
+    this.scorch(pos, { key: 'dirt', radius: radius * 0.8, color: '#6a5540', dur: 2.2 });
+  }
+
+  /** 석화술 — 바닥이 갈라지고 돌판이 솟아 굳는다 */
+  stoneField(pos, { radius = 5, color = '#c8c0a8' } = {}) {
+    this.shockwave(pos, { radius: radius * 1.1, color, dur: 0.5 });
+    this.scorch(pos, { key: 'dirt', radius: radius * 0.9, color: '#6b6350', dur: 2.6 });
+    // 굳어가는 돌판 — 가장자리를 따라 갈라진 조각이 솟는다
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + Math.random() * 0.4;
+      const rr = radius * (0.4 + Math.random() * 0.5);
+      const at = { x: pos.x + Math.cos(a) * rr, z: pos.z + Math.sin(a) * rr };
+      this.flare(at, { key: 'shard', size: 1.5, color, dur: 0.9, grow: 1.15, y: 0.7 });
+    }
+    this.flare(pos, { key: 'symbol', size: radius * 0.8, color, dur: 0.8, grow: 1.4, y: 0.3 });
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 14, color: '#9a9078', power: 5, size: 0.26, spread: 'up' });
+  }
+
+  /** 치유술 — 발밑에서 빛이 차오른다 */
+  heal(target, { color = '#8fe6c8' } = {}) {
+    const pos = target.position || target;
+    this.circle(pos, { radius: 2.0, color, dur: 1.2 });
+    this.aura(target, { radius: 1.3, color, dur: 1.0 });
+    // 위로 떠오르는 빛 알갱이
+    for (let i = 0; i < 5; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const at = { x: pos.x + Math.cos(a) * 0.7, z: pos.z + Math.sin(a) * 0.7 };
+      this.flare(at, { key: 'star', size: 0.8, color, dur: 0.7, grow: 0.4, y: 0.4 + i * 0.35 });
+    }
+    this.sparks({ x: pos.x, y: 0, z: pos.z },
+      { count: 16, color, power: 3, size: 0.22, spread: 'up' });
+  }
+
+  /** 정령시 — 화살이 떠나기 전 정령의 빛이 모인다 */
+  spiritCall(pos, { color = '#9fe4ff' } = {}) {
+    this.flare(pos, { key: 'twirl', size: 2.0, color, dur: 0.35, grow: 0.5, spin: -7, y: 1.2 });
+    this.flare(pos, { key: 'star', size: 1.2, color: '#ffffff', dur: 0.28, grow: 1.6, y: 1.2 });
+    this.sparks({ x: pos.x, y: 0.4, z: pos.z },
+      { count: 10, color, power: 3, size: 0.2, spread: 'up' });
+  }
+
+  /** 봉인시 — 맞은 자리에 부적 문양이 박힌다 */
+  seal(pos, { color = '#e8d8a8' } = {}) {
+    this.flare(pos, { key: 'symbol', size: 1.8, color, dur: 1.2, grow: 1.1, spin: 1.2, y: 1.1 });
+    this.circle(pos, { radius: 1.2, color, dur: 1.0 });
   }
 
   /** 돌풍격 — 지나간 길에 바람 자국이 남는다 */
@@ -512,6 +715,19 @@ export class VFX {
       } else if (e.kind === 'burst') {
         e.mesh.scaling.setAll(e.base * (0.4 + 1.2 * p));
         e.mesh.material.alpha = 1 - p;
+      } else if (e.kind === 'flare') {
+        // 확 커졌다가 사그라든다. spin이 있으면 돌면서
+        e.mesh.scaling.setAll(e.base * (0.5 + (e.grow - 0.5) * p));
+        if (e.spin) e.mesh.rotation.z += e.spin * delta;
+        e.mesh.material.alpha = p < 0.15 ? p / 0.15 : 1 - (p - 0.15) / 0.85;
+      } else if (e.kind === 'smoke') {
+        // 떠오르며 퍼지고 옅어진다
+        e.mesh.position.y += e.rise * delta;
+        e.mesh.scaling.setAll(e.base * (1 + (e.grow - 1) * p));
+        e.mesh.material.alpha = (1 - p) * 0.5;
+      } else if (e.kind === 'decal') {
+        // 바닥 자국은 크기가 변하지 않고 천천히 지워진다
+        e.mesh.material.alpha = p < 0.1 ? (p / 0.1) * 0.7 : (1 - (p - 0.1) / 0.9) * 0.7;
       } else if (e.kind === 'slash') {
         e.mesh.scaling.setAll(e.base * (0.5 + 0.6 * p));
         e.mesh.material.alpha = (1 - p) * 0.85;

@@ -93,6 +93,8 @@
       color: var(--muted); font-weight: 600; z-index: 1; }
     .slot.active { border-color: var(--accent); background: rgba(255, 176, 58, 0.16);
       box-shadow: 0 0 0 1px rgba(255, 176, 58, 0.35); }
+    /* 아직 얻지 못한 무기 칸 */
+    .slot.locked { opacity: 0.3; }
     .slot-icon { position: absolute; inset: 0; display: flex; align-items: center;
       justify-content: center; font-size: 21px; }
     .slot-count { position: absolute; right: 5px; bottom: 3px; font-size: 11px;
@@ -169,6 +171,15 @@
     .inv-ct { position: absolute; right: 4px; bottom: 2px; font-size: 11px;
       font-weight: 700; color: var(--text); text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
     #inv-empty { color: var(--muted); font-size: 11.5px; text-align: center; margin-top: 10px; }
+    /* 무기 칸 — 소지품 격자 안에 아이템과 함께 들어간다. 눌러서 장착 */
+    .inv-cell.weapon { cursor: pointer; border-color: rgba(255, 214, 102, 0.4);
+      background: rgba(255, 214, 102, 0.08); }
+    .inv-cell.weapon:hover { border-color: #ffd666; background: rgba(255, 214, 102, 0.2); }
+    .inv-cell.weapon.equipped { border-color: #ffd666;
+      background: rgba(255, 214, 102, 0.24); box-shadow: 0 0 0 1px rgba(255, 214, 102, 0.5); }
+    .inv-eq { position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+      font-size: 8.5px; font-weight: 700; color: #1a1408; background: #ffd666;
+      border-radius: 0 0 6px 6px; letter-spacing: 0.5px; }
     .win-title, .shop-title, .skill-title, .inv-title { display: flex; justify-content: space-between;
       align-items: center; font-weight: 700; font-size: 14px; margin-bottom: 12px; }
     #shop-close, #skill-close { border: 1px solid var(--edge-strong); background: transparent;
@@ -395,7 +406,7 @@
       <div class="inv-title">소지품 <span id="inv-gold">0 G</span></div>
       <div id="inv-grid"></div>
       <div id="inv-empty">아직 모은 것이 없습니다</div>
-      <div class="inv-hint">소모품은 눌러서 사용 · <b>1</b> 혼백</div>
+      <div class="inv-hint">무기는 눌러서 장착 · 소모품은 눌러서 사용 · <b>1</b> 혼백</div>
     </div>
     <div id="quickbar" class="panel"></div>
     <div id="minimap-frame"><div class="label">MAP</div></div>

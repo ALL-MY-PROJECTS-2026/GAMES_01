@@ -118,21 +118,50 @@ class NPC {
       if (parent && /^handslot/i.test(parent)) m.setEnabled(keep.includes(m.name));
     }
 
-    // 서 있는 대기 동작만 재생 (NPC는 이동하지 않는다)
+    // NPC는 이동하지 않지만, 혼자 있을 때와 사람이 올 때의 자세는 다르다
+    this.anims = {};
     for (const g of res.animationGroups) {
       g.stop();
-      if (g.name === (cfg.idle || 'Idle')) g.start(true, 1);
+      this.anims[g.name] = g;
     }
+    this.restClip = cfg.rest || cfg.idle || 'Idle';   // 아무도 없을 때
+    this.idleClip = cfg.idle || 'Idle';               // 다가왔을 때
+    this.greetClip = cfg.greet || null;               // 다가온 순간 한 번
+    this._play(this.restClip, true);
+  }
+
+  _play(name, loop = true, speed = 1) {
+    if (!this.anims || !this.anims[name] || this.playing === name) return 0;
+    if (this.playing && this.anims[this.playing]) this.anims[this.playing].stop();
+    const g = this.anims[name];
+    g.start(loop, speed);
+    this.playing = name;
+    const a = g.targetedAnimations[0] ? g.targetedAnimations[0].animation : null;
+    return (g.to - g.from) / (a ? a.framePerSecond : 60) / speed;
   }
 
   update(delta, player) {
     const dx = player.group.position.x - this.group.position.x;
     const dz = player.group.position.z - this.group.position.z;
-    if (dx * dx + dz * dz < 64) {
+    const near = dx * dx + dz * dz < 64;
+    if (near) {
       const target = Math.atan2(dx, dz);
       let diff = target - this.group.rotation.y;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       this.group.rotation.y += diff * Math.min(1, delta * 5);
+    }
+
+    // 사람이 오면 자리에서 일어나 맞이하고, 멀어지면 다시 제 자세로 돌아간다
+    if (this.greetT > 0) {
+      this.greetT -= delta;
+      if (this.greetT <= 0) this._play(this.idleClip, true);
+    } else if (near !== this.wasNear) {
+      this.wasNear = near;
+      if (near && this.greetClip && this.anims[this.greetClip]) {
+        this.greetT = this._play(this.greetClip, false, 1.1) || 0.9;
+      } else {
+        this._play(near ? this.idleClip : this.restClip, true);
+      }
     }
   }
 }
@@ -144,7 +173,11 @@ export class NPCManager {
         name: '도사 청운',
         role: 'elder',
         color: '#4a5a8e',
-        model: { file: 'Mage.glb', height: 1.85, props: ['2H_Staff'], idle: 'Idle' },
+        // 혼자일 때는 바닥에 앉아 명상하다가, 다가오면 일어나 맞이한다
+        model: {
+          file: 'Mage.glb', height: 1.85, props: ['2H_Staff', 'Spellbook'],
+          rest: 'Sit_Floor_Idle', greet: 'Sit_Floor_StandUp', idle: 'Idle'
+        },
         x: 5,
         z: -6,
         lines: [
@@ -157,7 +190,12 @@ export class NPCManager {
       new NPC(scene, shadow, {
         name: '무녀 소하',
         role: 'merchant',
-        model: { file: 'Rogue_Hooded.glb', height: 1.75, props: [], idle: 'Idle' },
+        // 장사꾼답게 서 있다가, 손님이 오면 반갑게 손을 든다.
+        // (의자 메시가 없어 Sit_Chair_* 는 쓰지 않는다 — 허공에 앉은 것처럼 보인다)
+        model: {
+          file: 'Rogue_Hooded.glb', height: 1.75, props: ['Knife'],
+          rest: 'Idle', greet: 'Cheer', idle: 'Idle'
+        },
         color: '#b85a7a',
         x: -6,
         z: -4,

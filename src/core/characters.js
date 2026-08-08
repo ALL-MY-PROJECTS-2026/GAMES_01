@@ -9,20 +9,42 @@ const KAYKIT_CLIPS = {
   punch5: 'Unarmed_Melee_Attack_Kick',
   sword1: '1H_Melee_Attack_Stab',              // 찌르기
   sword2: '1H_Melee_Attack_Slice_Horizontal',  // 가로베기
-  cast: 'Spellcast_Shoot', shoot: '1H_Ranged_Shoot',
-  hit: 'Hit_A', death: 'Death_A',
+  heavy1: '2H_Melee_Attack_Chop',              // 대도 내려찍기
+  heavy2: '2H_Melee_Attack_Spin',              // 대도 휘돌려베기
+  dual1: 'Dualwield_Melee_Attack_Chop',        // 쌍비수 1타
+  dual2: 'Dualwield_Melee_Attack_Slice',       // 쌍비수 2타
+  dual3: 'Dualwield_Melee_Attack_Stab',        // 쌍비수 마무리
+  throw1: 'Throw',                             // 표창 던지기
+  // 술법 시전 — 종류마다 다른 자세를 쓴다
+  cast: 'Spellcast_Shoot',
+  castLong: 'Spellcast_Long', castRaise: 'Spellcast_Raise', castHold: 'Spellcasting',
+  shoot: '1H_Ranged_Shoot', reload: '1H_Ranged_Reload', aim: '1H_Ranged_Aiming',
+  hit: 'Hit_A', hitB: 'Hit_B', death: 'Death_A', deathB: 'Death_B',
   dodge: 'Dodge_Forward', dodgeBack: 'Dodge_Backward',
-  block: 'Blocking', blockHit: 'Block_Hit', cheer: 'Cheer'
+  block: 'Blocking', blockHit: 'Block_Hit', blockAttack: 'Block_Attack', cheer: 'Cheer',
+  // 무기별 대기 자세
+  idleHeavy: '2H_Melee_Idle', idleUnarmed: 'Unarmed_Idle',
+  // 이동 방향별
+  strafeL: 'Running_Strafe_Left', strafeR: 'Running_Strafe_Right',
+  walkBack: 'Walking_Backwards',
+  // 상호작용
+  pickup: 'PickUp', interact: 'Interact', useItem: 'Use_Item'
 };
 
 // RobotExpressive(기존 샘플 모델) — 클립이 적어 구간 슬라이스로 동작을 나눈다
 const ROBOT_CLIPS = {
   idle: 'Idle', walk: 'Walking', run: 'Running', jump: 'Jump',
   punch1: 'Punch', punch2: 'Punch', punch3: 'Wave', punch4: 'Jump', punch5: 'Punch',
-  sword1: 'Punch', sword2: 'Wave',
-  cast: 'Wave', shoot: 'Punch',
-  hit: 'Idle', death: 'Death',
-  dodge: 'Running', dodgeBack: 'Running', block: 'Idle', blockHit: 'Idle', cheer: 'ThumbsUp'
+  sword1: 'Punch', sword2: 'Wave', heavy1: 'Punch', heavy2: 'Wave',
+  dual1: 'Punch', dual2: 'Wave', dual3: 'Punch', throw1: 'Punch',
+  cast: 'Wave', castLong: 'Wave', castRaise: 'Wave', castHold: 'Wave',
+  shoot: 'Punch', reload: 'Idle', aim: 'Idle',
+  hit: 'Idle', hitB: 'Idle', death: 'Death', deathB: 'Death',
+  dodge: 'Running', dodgeBack: 'Running',
+  block: 'Idle', blockHit: 'Idle', blockAttack: 'Punch', cheer: 'ThumbsUp',
+  idleHeavy: 'Idle', idleUnarmed: 'Idle',
+  strafeL: 'Walking', strafeR: 'Walking', walkBack: 'Walking',
+  pickup: 'Idle', interact: 'Wave', useItem: 'Idle'
 };
 
 // 플레이어 3인 — 선택한 1인을 조작하고 나머지 둘은 동료 AI가 된다 (슬레이어즈식 소프트 락:
@@ -34,8 +56,12 @@ export const CHARACTERS = {
     // 붉은 무복의 검객 — 기본 텍스처의 초록 계열을 붉은색으로, 청록은 남색으로 갈아입힌다
     model: {
       file: 'Rogue.glb', clips: KAYKIT_CLIPS, height: 1.85, weaponBone: 'handslot.r',
-      // 4번 슬롯은 모델에 내장된 석궁 메시를 그대로 쓴다
-      props: { gun: '1H_Crossbow' },
+      // 모델에 내장된 메시를 그대로 쓰는 무기들 (배열이면 양손에 동시에 켠다)
+      props: {
+        gun: '1H_Crossbow',
+        twinKnife: ['Knife', 'Knife_Offhand'],
+        throwStar: 'Throwable'
+      },
       texture: 'models/rogue_texture.png',
       recolor: [
         { from: [75, 168], to: 2, satMul: 1.25 },    // 초록 옷 → 붉은 무복

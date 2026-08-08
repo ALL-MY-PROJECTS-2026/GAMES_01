@@ -10,7 +10,9 @@ import { initDialog, isDialogOpen, openDialog, advanceDialog } from './ui/dialog
 import { initShop, isShopOpen, openShop, closeShop } from './ui/shop.js';
 import { initSkills, toggleSkills, closeSkills } from './ui/skills.js';
 import { CHARACTERS } from './core/characters.js';
-import { bindPlayer, addXp, addGold, addJelly, useJelly, stats } from './core/stats.js';
+import {
+  bindPlayer, addXp, addGold, addJelly, useJelly, stats, grantWeapon
+} from './core/stats.js';
 import { Player } from './player/player.js';
 import { CompanionManager } from './player/companions.js';
 import { WEAPONS } from './player/weapons.js';
@@ -20,7 +22,7 @@ import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import {
   initHUD, setMP, setHP, toggleInventory, setActiveWeapon, setPlayerIdentity, setBossBar,
-  showPickup, setAutoHunt
+  showPickup, setAutoHunt, showToast
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
@@ -29,7 +31,7 @@ import { VFX } from './world/vfx.js';
 import {
   initSpellBar, getSelectedSpell, setSpellCooldown, setSpellAffordable, selectSpellByIndex
 } from './ui/spellbar.js';
-import { SPELLS, SPELL_ORDER } from './core/spells.js';
+import { SPELLS, SPELL_ORDER, castClipOf } from './core/spells.js';
 import { net } from './net/net.js';
 import { GhostManager } from './net/ghosts.js';
 import { initInventory, addItem, renderInventory } from './ui/inventory.js';
@@ -165,20 +167,27 @@ async function boot() {
     } else {
       return false;
     }
+    player.playAction('useItem', 1.5);
     sfx.pickup();
     return true;
+  }, (key) => {
+    // 소지품에서 무기를 눌러 장착한다
+    if (!player.setWeapon(key)) return;
+    setActiveWeapon(player.weapon);
+    renderInventory(player.weapon);
+    sfx.pickup();
   });
   initAudio();
   bindPlayer(player);
   setMP(player.mp, player.maxMp);
 
-  const weaponKeys = { Digit2: 'punch', Digit3: 'sword', Digit4: 'gun' };
+  // 무기는 숫자키로 바꾸지 않는다 — 소지품(I)에서 눌러 장착한다
   setActiveWeapon(player.weapon);
   window.addEventListener('keydown', (e) => {
     // 채팅 입력 중에는 게임 단축키가 먹지 않는다
     if (isChatOpen()) return;
     if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); openChat(); return; }
-    if (e.code === 'KeyI') { renderInventory(); toggleInventory(); }
+    if (e.code === 'KeyI') { renderInventory(player.weapon); toggleInventory(); }
     if (e.code === 'KeyK') toggleSkills();
     // F1~F12로 술법 선택
     const fk = /^F([1-9]|1[0-2])$/.exec(e.code);
@@ -188,11 +197,13 @@ async function boot() {
       return;
     }
     if (e.code === 'KeyV') { autoHunt = !autoHunt; setAutoHunt(autoHunt); }
+    // T — 이펙트 텍스처를 절차적 ↔ Kenney 스프라이트로 번갈아 본다
+    if (e.code === 'KeyT') {
+      const set = vfx.toggleTextureSet();
+      showToast(set === 'kenney' ? '이펙트: Kenney 스프라이트' : '이펙트: 절차적 (기본)');
+    }
     if (e.code === 'Digit1') useJelly();
     if (e.code === 'Escape') { closeShop(); closeSkills(); }
-    if (weaponKeys[e.code] && player.setWeapon(weaponKeys[e.code])) {
-      setActiveWeapon(player.weapon);
-    }
   });
 
   // 자동 사냥 — 가장 가까운 적을 스스로 찾아 싸운다
@@ -377,7 +388,7 @@ async function boot() {
     } else if (e.t === 'spell') {
       const sp = SPELLS[e.k];
       if (!sp) return;
-      if (gh) gh.playOnce('cast', 1.6);
+      if (gh) gh.playOnce(castClipOf(sp), 1.6);
       // 남의 술법도 내 것과 같은 그림으로 보여야 무엇을 쓴 건지 알 수 있다
       const at = { x: e.x, z: e.z };
       const to = { x: e.gx, z: e.gz };
@@ -388,6 +399,19 @@ async function boot() {
         vfx.whirl(at, { radius: sp.radius, color: sp.color });
       } else if (sp.fx === 'quake') {
         vfx.quake(at, { radius: sp.radius, color: sp.color });
+      } else if (sp.fx === 'stone') {
+        vfx.stoneField(at, { radius: sp.radius, color: sp.color });
+      } else if (sp.fx === 'heal') {
+        if (gh) vfx.heal(gh.group, { color: sp.color });
+        else vfx.heal(at, { color: sp.color });
+      } else if (sp.fx === 'firewall') {
+        if (gh) vfx.aura(gh.group, { radius: sp.radius * 0.55, color: sp.color, dur: sp.duration });
+        vfx.circle(at, { radius: sp.radius, color: sp.color, dur: 1.2 });
+      } else if (sp.fx === 'iron') {
+        if (gh) vfx.aura(gh.group, { radius: 1.5, color: sp.color, dur: sp.duration });
+        vfx.flare(at, { key: 'symbol', size: 2.2, color: sp.color, dur: 0.8, grow: 1.3, y: 1.0 });
+      } else if (sp.fx === 'spirit') {
+        vfx.spiritCall(at, { color: sp.color });
       } else if (sp.fx === 'blaze') {
         vfx.circle(to, { radius: sp.radius, color: sp.color, dur: 0.9 });
         vfx.fireField(to, { radius: sp.radius, color: sp.color, dur: sp.duration });
@@ -446,8 +470,8 @@ async function boot() {
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
       else if (isDialogOpen()) advanceDialog();
-      else if (nearNpc && nearNpc.role === 'merchant') openShop();
-      else if (nearNpc) openDialog(nearNpc);
+      else if (nearNpc && nearNpc.role === 'merchant') { player.playAction('interact'); openShop(); }
+      else if (nearNpc) { player.playAction('interact'); openDialog(nearNpc); }
     }
     const talking = isDialogOpen() || isShopOpen();
     if (!talking && nearNpc) {
@@ -554,6 +578,7 @@ async function boot() {
     projectiles.updateHostile(d, player);
     player.updateGroundAreas(d, monsters.list, handleHit);
     player.updateRain(d, monsters.list, handleHit);
+    player.updateAuraField(d, monsters.list, handleHit);
     vfx.update(d);
     for (const key of SPELL_ORDER) {
       const sp = SPELLS[key];
@@ -565,6 +590,8 @@ async function boot() {
     projectiles.update(d, monsters.list, handleHit);
     npcs.update(delta, player);
     drops.update(d, player, (item) => {
+      // 가만히 서 있을 때만 줍는 동작을 보여준다 (자동 수집으로 연달아 주울 때 튀지 않게)
+      player.playAction('pickup', 1.6);
       if (!item) { addJelly(1); sfx.pickup(); return; }
       const amt = Array.isArray(item.amount)
         ? item.amount[0] + Math.floor(Math.random() * (item.amount[1] - item.amount[0] + 1))
@@ -573,6 +600,15 @@ async function boot() {
         case 'jelly': addJelly(amt); break;
         case 'gold': addGold(amt); break;
         case 'item': addItem(item.key, 1); break;   // 소모품은 소지품에 쌓인다
+        case 'weapon':
+          // 무기는 영구 해금 — 얻는 즉시 손에 쥐어주고 무기창을 새로 그린다
+          if (grantWeapon(item.weapon)) {
+            if (player.setWeapon(item.weapon)) setActiveWeapon(player.weapon);
+            renderInventory(player.weapon);
+            sfx.levelup();
+            showToast(`${WEAPONS[item.weapon].name}을(를) 얻었다 — I 에서 장착`);
+          }
+          break;
       }
       showPickup(item, amt);
       sfx.pickup();

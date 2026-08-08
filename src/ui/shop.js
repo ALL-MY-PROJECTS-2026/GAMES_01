@@ -1,6 +1,7 @@
 import { WEAPONS } from '../player/weapons.js';
 import {
-  stats, upgradeCost, tryUpgrade, sellAllJelly, weaponDamage, MAX_UPGRADE, JELLY_PRICE
+  stats, upgradeCost, tryUpgrade, sellAllJelly, weaponDamage, MAX_UPGRADE, JELLY_PRICE,
+  ownsWeapon
 } from '../core/stats.js';
 
 let open = false;
@@ -34,6 +35,8 @@ export function renderShop() {
   const rows = document.getElementById('shop-rows');
   rows.innerHTML = '';
   for (const [key, w] of Object.entries(WEAPONS)) {
+    // 아직 얻지 못한 무기는 강화 목록에 올리지 않는다
+    if (!ownsWeapon(key)) continue;
     const lvl = stats.upgrades[key] || 0;
     const cost = upgradeCost(key);
     const now = weaponDamage(w.damage, key);

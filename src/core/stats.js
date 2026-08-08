@@ -7,7 +7,7 @@ import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 // 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -27,6 +27,8 @@ export const stats = {
   xpMax: 25,
   gold: 0,
   items: { jelly: 0 },
+  // 보유 무기 — 나머지는 드랍으로 해금한다. 강화(upgrades)와는 별개다
+  owned: { punch: true, sword: true },
   upgrades: { punch: 0, sword: 0, gun: 0 },
   skillPoints: 0,
   skills: {},
@@ -65,6 +67,7 @@ export function save() {
       gold: stats.gold,
       // 소지품 전체를 저장한다 (v2까지는 혼백만 저장해서 나머지 아이템이 사라졌다)
       items: { ...stats.items },
+      owned: { ...stats.owned },
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
@@ -87,6 +90,10 @@ function migrate(data) {
   if (v < 3) {
     // v2: 혼백 개수만 따로 저장하던 형식 → 소지품 묶음으로 옮긴다
     data.items = { jelly: data.jelly || 0 };
+  }
+  if (v < 4) {
+    // v3: 무기를 처음부터 다 갖고 있던 시절 → 쓰던 셋은 그대로 소급 지급한다
+    data.owned = { punch: true, sword: true, gun: true };
   }
   data.version = SAVE_VERSION;
   return data;
@@ -167,6 +174,10 @@ export function bindPlayer(player) {
     for (const k of Object.keys(stats.items)) delete stats.items[k];
     Object.assign(stats.items, data.items || { jelly: data.jelly || 0 });
     stats.items.jelly = stats.items.jelly || 0;
+    // 보유 무기도 통째로 복원한다. 권법은 언제나 쓸 수 있어야 한다
+    for (const k of Object.keys(stats.owned)) delete stats.owned[k];
+    Object.assign(stats.owned, data.owned || { punch: true, sword: true });
+    stats.owned.punch = true;
     Object.assign(stats.upgrades, data.upgrades || {});
     stats.skills = data.skills || {};
     // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급
@@ -194,7 +205,8 @@ export function refreshAll() {
   setXP(stats.xp, stats.xpMax);
   setGold(stats.gold);
   setJellyCount(stats.items.jelly);
-  for (const k of ['punch', 'sword', 'gun']) setWeaponUpgrade(k, stats.upgrades[k]);
+  // 퀵바에는 지금 든 무기의 강화만 표시된다
+  if (playerRef) setWeaponUpgrade(playerRef.weapon, stats.upgrades[playerRef.weapon] || 0);
   setSkillPoints(stats.skillPoints + stats.statPoints);
   if (playerRef) setHP(playerRef.hp, playerRef.maxHp);
 }
@@ -253,7 +265,21 @@ export function upgradeCost(weaponKey) {
   return { jelly: 2 + lvl * 2, gold: 20 + lvl * 30 };
 }
 
+/** 이 무기를 갖고 있는가 — 갖지 않은 무기는 들 수도, 강화할 수도 없다 */
+export function ownsWeapon(key) {
+  return !!stats.owned[key];
+}
+
+/** 드랍으로 무기를 얻는다. 이미 갖고 있으면 false */
+export function grantWeapon(key) {
+  if (stats.owned[key]) return false;
+  stats.owned[key] = true;
+  save();
+  return true;
+}
+
 export function tryUpgrade(weaponKey) {
+  if (!ownsWeapon(weaponKey)) return { ok: false, reason: 'locked' };
   const cost = upgradeCost(weaponKey);
   if (!cost) return { ok: false, reason: 'max' };
   if (stats.items.jelly < cost.jelly || stats.gold < cost.gold) {
@@ -261,7 +287,8 @@ export function tryUpgrade(weaponKey) {
   }
   stats.items.jelly -= cost.jelly;
   stats.gold -= cost.gold;
-  stats.upgrades[weaponKey] += 1;
+  // 새로 추가된 무기는 강화 항목이 아직 없을 수 있다
+  stats.upgrades[weaponKey] = (stats.upgrades[weaponKey] || 0) + 1;
   sfx.levelup();
   refreshAll();
   save();

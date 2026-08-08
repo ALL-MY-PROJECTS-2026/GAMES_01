@@ -1,4 +1,4 @@
-import { DynamicTexture } from '@babylonjs/core';
+import { DynamicTexture, Texture } from '@babylonjs/core';
 
 // 절차적 VFX 텍스처 (STACK.md §9) — 다운로드 없이 코드로 생성한다.
 // 단색 도형만 쓰면 밋밋하므로 문양·감쇠·노이즈를 넣어 밀도를 만든다.
@@ -231,4 +231,48 @@ export function makeTracerTexture(scene, w = 256, h = 64) {
   tex.update();
   tex.hasAlpha = true;
   return tex;
+}
+
+// ── 외부 스프라이트 세트 (Kenney Particle Pack, CC0) ────────────────────
+// 절차적 텍스처와 같은 키를 쓰므로 통째로 갈아끼워 비교할 수 있다.
+// 파일은 public/textures/fx/ 에 있고 라이선스는 같은 폴더의 KENNEY_LICENSE.txt.
+export const KENNEY_FILES = {
+  // 절차적 세트와 짝이 있는 키 — 통째로 갈아끼워 비교할 수 있다
+  rune: 'rune.png',            // magic_05
+  glow: 'glow.png',            // light_01
+  spark: 'spark.png',          // spark_04
+  slash: 'slash.png',          // slash_01
+  noise: 'noise.png',          // smoke_04
+  shockRing: 'shockRing.png',  // circle_05
+  fireField: 'fireField.png',  // fire_01
+  // 레이어를 겹치려고 더 가져온 것들 — 절차적 세트에는 대응이 없어 근사값으로 접힌다
+  smoke: 'smoke.png',          // smoke_09  연기 잔향
+  flame: 'flame.png',          // flame_04  솟는 불꽃
+  star: 'star.png',            // star_08   반짝임
+  twirl: 'twirl.png',          // twirl_02  소용돌이
+  trace: 'trace.png',          // trace_06  길게 늘어지는 궤적
+  muzzle: 'muzzle.png',        // muzzle_02 발사 섬광
+  symbol: 'symbol.png',        // symbol_02 봉인 문양
+  scorch: 'scorch.png',        // scorch_02 바닥 그을음
+  dirt: 'dirt.png',            // dirt_02   흙먼지
+  magicRing: 'magicRing.png',  // magic_01  바깥 마법진
+  shard: 'shard.png'           // window_02 갈라진 파편(석화)
+};
+
+// 절차적 세트에 짝이 없는 키는 가장 가까운 절차적 텍스처로 대신한다.
+// (T 키로 되돌렸을 때 이펙트가 사라지지 않게 하려는 것)
+export const PROC_FALLBACK = {
+  smoke: 'noise', flame: 'fireField', star: 'spark', twirl: 'shockRing',
+  trace: 'glow', muzzle: 'glow', symbol: 'rune', scorch: 'noise',
+  dirt: 'noise', magicRing: 'rune', shard: 'shockRing'
+};
+
+export function makeKenneyTextures(scene) {
+  const out = {};
+  for (const [key, file] of Object.entries(KENNEY_FILES)) {
+    const tex = new Texture('textures/fx/' + file, scene, false, false);
+    tex.hasAlpha = true;
+    out[key] = tex;
+  }
+  return out;
 }

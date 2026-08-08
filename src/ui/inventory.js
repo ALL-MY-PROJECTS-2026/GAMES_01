@@ -1,17 +1,25 @@
 import { LOOT } from '../world/loot.js';
-import { stats, save } from '../core/stats.js';
+import { stats, save, ownsWeapon } from '../core/stats.js';
+import { WEAPONS, WEAPON_ORDER } from '../player/weapons.js';
 
-// 소지품 카드 그리드 — 획득한 소모품이 칸에 쌓이고, 클릭하면 사용된다.
+// 소지품 카드 그리드 — 얻은 무기와 소모품이 같은 칸에 들어간다.
+// 무기는 눌러서 장착하고, 소모품은 눌러서 쓴다. 무기 교체용 숫자키는 없다.
 let useHandler = null;
+let equipHandler = null;
 
-export function initInventory(onUse) {
+export function initInventory(onUse, onEquip = null) {
   useHandler = onUse;
+  equipHandler = onEquip;
   const panel = document.getElementById('inventory');
   if (!panel) return;
   panel.addEventListener('click', (e) => {
     const cell = e.target.closest('.inv-cell');
-    if (!cell || !cell.dataset.item) return;
-    useItem(cell.dataset.item);
+    if (!cell) return;
+    if (cell.dataset.weapon) {
+      if (equipHandler) equipHandler(cell.dataset.weapon);
+    } else if (cell.dataset.item) {
+      useItem(cell.dataset.item);
+    }
   });
 }
 
@@ -33,13 +41,27 @@ export function useItem(key) {
   return true;
 }
 
-export function renderInventory() {
+export function renderInventory(activeWeapon = null) {
   const grid = document.getElementById('inv-grid');
   if (!grid) return;
   const gold = document.getElementById('inv-gold');
   if (gold) gold.textContent = `${stats.gold.toLocaleString()} G`;
 
-  // 소지 중인 것만 앞에 채우고 나머지는 빈 칸으로 — 아이템창처럼 격자가 유지된다
+  // 얻은 무기가 먼저, 그 뒤에 소모품. 둘 다 같은 격자에 들어간다
+  let html = '';
+  for (const key of WEAPON_ORDER) {
+    if (!ownsWeapon(key)) continue;
+    const w = WEAPONS[key];
+    const lvl = stats.upgrades[key] || 0;
+    const on = key === activeWeapon;
+    html += `<div class="inv-cell weapon${on ? ' equipped' : ''}" data-weapon="${key}"
+      title="${w.name} — 공격력 ${w.damage}${lvl ? ` (+${lvl})` : ''}${on ? ' · 장착 중' : ' (클릭해 장착)'}">
+      <div class="inv-ic">${w.icon}</div>
+      ${lvl ? `<div class="inv-ct">+${lvl}</div>` : ''}
+      ${on ? '<div class="inv-eq">착용</div>' : ''}
+    </div>`;
+  }
+
   // stats.items.jelly는 혼백(soul)과 같은 것을 가리킨다
   const items = { ...stats.items };
   if (items.jelly) { items.soul = (items.soul || 0) + items.jelly; delete items.jelly; }
@@ -47,15 +69,7 @@ export function renderInventory() {
     .filter(([k, v]) => v > 0 && LOOT[k])
     .sort((a, b) => (LOOT[b[0]].weight || 0) - (LOOT[a[0]].weight || 0));
 
-  const CELLS = 20;
-  let html = '';
-  for (let i = 0; i < CELLS; i++) {
-    const entry = owned[i];
-    if (!entry) {
-      html += '<div class="inv-cell empty"></div>';
-      continue;
-    }
-    const [key, count] = entry;
+  for (const [key, count] of owned) {
     const d = LOOT[key];
     const usable = !!d.use;
     html += `<div class="inv-cell${usable ? ' usable' : ''}" data-item="${key}"
@@ -63,6 +77,12 @@ export function renderInventory() {
       <div class="inv-ic">${d.icon}</div>
       <div class="inv-ct">${count}</div>
     </div>`;
+  }
+
+  // 격자 모양이 유지되도록 남는 칸은 빈 칸으로 채운다
+  const used = WEAPON_ORDER.filter(ownsWeapon).length + owned.length;
+  for (let i = used; i < Math.max(24, Math.ceil(used / 4) * 4); i++) {
+    html += '<div class="inv-cell empty"></div>';
   }
   grid.innerHTML = html;
 

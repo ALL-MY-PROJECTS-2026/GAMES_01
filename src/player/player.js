@@ -14,10 +14,12 @@ import { recolorTexture } from './recolor.js';
 import { setHP, setMP, showCombo, flashHurt, showDamage, setStamina } from '../ui/hud.js';
 import { hitstop, shake } from '../core/juice.js';
 import {
-  weaponDamage, stats, attackSpeedMul, moveSpeedAttrMul, magicDamageMul, damageTakenMul
+  weaponDamage, stats, attackSpeedMul, moveSpeedAttrMul, magicDamageMul, damageTakenMul,
+  ownsWeapon
 } from '../core/stats.js';
 import { applyWeaponSkills, moveSpeedMul, finisherMods } from '../core/skills.js';
 import { CHARACTERS } from '../core/characters.js';
+import { castClipOf } from '../core/spells.js';
 import { sfx } from '../core/sfx.js';
 
 const UP = new Vector3(0, 1, 0);
@@ -65,9 +67,46 @@ const SWORD_COMBO = [
     anim: { key: 'sword2', speed: 1.5 }   // 가로베기
   }
 ];
-const SWORD_FINISHER = SWORD_COMBO.length - 1;
-const LOOPING = new Set(['idle', 'walk', 'run']);
-const SPEEDS = { idle: 1, walk: 1.2, run: 1.25, jump: 1.25 };
+// 대도 2단 연계: 내려찍기 → 휘돌려베기. 느린 대신 한 방이 무겁다
+const HEAVY_COMBO = [
+  {
+    dmgMul: 1.0, knock: 16, knockUp: 0, cd: 0.62, lunge: 4.6, arcDot: 0.1, rangeMul: 1,
+    anim: { key: 'heavy1', speed: 1.35 }
+  },
+  {
+    dmgMul: 1.55, knock: 26, knockUp: 4, cd: 0.85, lunge: 2.6, arcDot: -0.6, rangeMul: 1.1,
+    anim: { key: 'heavy2', speed: 1.2 }
+  }
+];
+// 쌍비수 3단 연계: 좌 → 우 → 찌르기. 한 방은 가볍지만 가장 촘촘하다
+const DUAL_COMBO = [
+  {
+    dmgMul: 0.85, knock: 4, knockUp: 0, cd: 0.2, lunge: 4.4, arcDot: 0.2, rangeMul: 1,
+    anim: { key: 'dual1', speed: 2.1 }
+  },
+  {
+    dmgMul: 0.95, knock: 5, knockUp: 0, cd: 0.22, lunge: 4.2, arcDot: 0.1, rangeMul: 1,
+    anim: { key: 'dual2', speed: 2.1 }
+  },
+  {
+    dmgMul: 1.5, knock: 12, knockUp: 2, cd: 0.4, lunge: 5.2, arcDot: 0.35, rangeMul: 1.2,
+    anim: { key: 'dual3', speed: 1.7 }
+  }
+];
+// 무기의 combo 태그로 고른다. 없으면 퇴마검 연계를 쓴다
+const COMBOS = { sword: SWORD_COMBO, heavy: HEAVY_COMBO, dual: DUAL_COMBO };
+// 연계 마지막 타에 띄우는 이름
+const FINISH_NAME = {
+  punch: '붕권', sword: '가로베기', dagger: '연격', axe: '내려찍기',
+  greatsword: '휘돌려베기', staff: '장타', twinKnife: '쌍비수 찌르기'
+};
+const LOOPING = new Set([
+  'idle', 'walk', 'run', 'idleHeavy', 'idleUnarmed', 'strafeL', 'strafeR', 'walkBack', 'reload'
+]);
+const SPEEDS = {
+  idle: 1, walk: 1.2, run: 1.25, jump: 1.25,
+  idleHeavy: 1, idleUnarmed: 1, strafeL: 1.2, strafeR: 1.2, walkBack: 1.1, reload: 1.1
+};
 
 export class Player {
   constructor(scene, obstacles = [], shadow = null, charKey = 'ilim') {
@@ -108,6 +147,12 @@ export class Player {
     this.nearbyMonsters = null;   // main 루프가 매 프레임 넣어준다
     this.wardT = 0;
     this.wardMul = 1;
+    this.ironT = 0;        // 금강불괴가 남은 시간
+    this.ironMul = 1;
+    this.auraField = null; // 화벽술 — 몸을 두른 불길
+    this.reloadT = 0;      // 쏜 뒤 장전 동작이 남은 시간
+    this.actionT = 0;      // 줍기·대화 같은 단발 동작이 남은 시간
+    this.actionCd = 0;     // 그 동작이 연달아 튀지 않게 하는 간격
     this.dmgBuffT = 0;
     this.dmgBuffMul = 1;
     this.hasteT = 0;
@@ -226,10 +271,17 @@ export class Player {
     this.play('idle');
 
     // 무기 부착: 모델이 전용 무기 슬롯 본을 가지면 그쪽에, 없으면 손 노드에 붙인다
-    // 아트 스타일을 맞추기 위해 KayKit 검을 우선 쓰고, 실패하면 절차적 메시로 대체한다
-    const sword = (await loadKitMesh(this.scene, 'sword_1handed.gltf', { height: SWORD_TIP_Y }))
-      || makeSwordMesh(this.scene);
-    const gun = makeGunMesh(this.scene);
+    // 아트 스타일을 맞추기 위해 KayKit 무기를 우선 쓰고, 실패하면 절차적 메시로 대체한다
+    // (미보유 무기도 메시는 미리 만들어 둔다 — 획득 즉시 들 수 있어야 한다)
+    const meshes = {};
+    for (const [key, w] of Object.entries(WEAPONS)) {
+      let mesh = w.kit
+        ? await loadKitMesh(this.scene, w.kit.file, { height: w.kit.height })
+        : null;
+      if (!mesh && w.make === 'sword') mesh = makeSwordMesh(this.scene);
+      if (!mesh && w.make === 'gun') mesh = makeGunMesh(this.scene);
+      if (mesh) meshes[key] = mesh;
+    }
     const slotBone = cfg.weaponBone
       ? (res.skeletons[0] && res.skeletons[0].bones.find((b) => b.name === cfg.weaponBone))
       : null;
@@ -239,32 +291,36 @@ export class Player {
         this.scene.getTransformNodeByName('HandR') ||
         this.scene.getTransformNodeByName('LowerArm.R');
 
-    if (attach) {
-      for (const w of [sword, gun]) {
-        w.parent = attach;
-        w.scaling.setAll(1);
-        w.position.set(0, 0, 0);
-        w.rotation.set(0, 0, 0);
-      }
-      if (!slotBone) {
-        const inv = 1 / scale;
-        for (const w of [sword, gun]) w.scaling.setAll(inv);
-        sword.position.set(0, 0.25 / scale, 0);
-        sword.rotation.set(Math.PI / 2, 0, 0);
-        gun.position.set(0, 0.22 / scale, 0.05 / scale);
+    for (const [key, mesh] of Object.entries(meshes)) {
+      const ranged = WEAPONS[key].type === 'ranged';
+      if (attach) {
+        mesh.parent = attach;
+        mesh.scaling.setAll(1);
+        mesh.position.set(0, 0, 0);
+        mesh.rotation.set(0, 0, 0);
+        if (!slotBone) {
+          // 무기 슬롯 본이 없는 모델은 손 노드에 붙으므로 크기·자세를 손으로 잡아준다
+          const inv = 1 / scale;
+          mesh.scaling.setAll(inv);
+          if (ranged) mesh.position.set(0, 0.22 / scale, 0.05 / scale);
+          else {
+            mesh.position.set(0, 0.25 / scale, 0);
+            mesh.rotation.set(Math.PI / 2, 0, 0);
+          }
+        } else if (ranged) {
+          mesh.rotation.set(Math.PI / 2, 0, 0);
+        }
       } else {
-        gun.rotation.set(Math.PI / 2, 0, 0);
+        mesh.parent = this.group;
+        if (ranged) mesh.position.set(0.5, 1.2, 0.25);
+        else {
+          mesh.position.set(0.5, 1.15, 0.15);
+          mesh.rotation.z = -0.4;
+        }
       }
-    } else {
-      sword.parent = this.group;
-      gun.parent = this.group;
-      sword.position.set(0.5, 1.15, 0.15);
-      sword.rotation.z = -0.4;
-      gun.position.set(0.5, 1.2, 0.25);
+      mesh.setEnabled(false);
     }
-    sword.setEnabled(false);
-    gun.setEnabled(false);
-    this.weaponMeshes = { sword, gun };
+    this.weaponMeshes = meshes;
     this.setWeapon(this.weapon);
 
     // 방패는 왼손 슬롯에 — 방어 중에만 보인다
@@ -279,10 +335,39 @@ export class Player {
         this.shieldMesh = shield;
       }
     }
+
+    // 화살통은 등에 — 원거리 무기를 들었을 때만 보인다.
+    // 전용 슬롯 본이 없어 몸통에 직접 얹는다
+    const quiver = await loadKitMesh(this.scene, 'quiver.gltf', { height: 0.55 });
+    if (quiver) {
+      quiver.parent = this.model;
+      const inv = 1 / this.modelScale;
+      quiver.scaling.setAll(inv * 0.9);
+      quiver.position.set(0, 1.15 * inv, -0.22 * inv);
+      quiver.rotation.set(0.35, 0, 0.45);
+      quiver.setEnabled(false);
+      this.quiverMesh = quiver;
+    }
+    this.setWeapon(this.weapon);
   }
 
   setShieldVisible(on) {
     if (this.shieldMesh && this.shieldMesh.isEnabled() !== on) this.shieldMesh.setEnabled(on);
+  }
+
+  /**
+   * 줍기·대화·물약처럼 전투와 무관한 단발 동작.
+   * 이동·공격 중이면 흐름을 끊지 않도록 그냥 건너뛴다.
+   */
+  playAction(key, speed = 1.4) {
+    if (!this.groups || !this.clipMap[key]) return false;
+    if (this.lockTimer > 0 || this.dodgeT > 0 || this.blocking || this.moving) return false;
+    if (this.actionT > 0 || this.actionCd > 0) return false;
+    const dur = (this._clipLen(key) || 0.8) / speed;
+    this.play(key, true, speed);
+    this.actionT = dur;
+    this.actionCd = dur + 0.35;
+    return true;
   }
 
   // 논리 키에 대응하는 클립의 재생 길이(초)
@@ -316,21 +401,25 @@ export class Player {
 
   setWeapon(key) {
     if (!WEAPONS[key]) return false;
+    // 아직 얻지 못한 무기는 들 수 없다 (드랍으로 해금한다)
+    if (!ownsWeapon(key)) return false;
     this.weapon = key;
     this.comboStep = -1;
     this.comboTimer = 0;
 
     // 모델 내장 프롭을 쓰는 슬롯이면 그것만 켜고, 아니면 게임이 만든 메시를 켠다
+    // (값이 배열이면 쌍비수처럼 두 손에 동시에 켠다)
     const props = this.propForWeapon || {};
-    for (const [slot, propName] of Object.entries(props)) {
-      const mesh = this.builtinProps && this.builtinProps[propName];
-      if (mesh) mesh.setEnabled(slot === key);
+    for (const [slot, propNames] of Object.entries(props)) {
+      for (const name of (Array.isArray(propNames) ? propNames : [propNames])) {
+        const mesh = this.builtinProps && this.builtinProps[name];
+        if (mesh) mesh.setEnabled(slot === key);
+      }
     }
-    if (this.weaponMeshes.sword) {
-      this.weaponMeshes.sword.setEnabled(key === 'sword' && !props.sword);
-    }
-    if (this.weaponMeshes.gun) {
-      this.weaponMeshes.gun.setEnabled(key === 'gun' && !props.gun);
+    // 화살통은 원거리 무기를 들었을 때만 등에 보인다
+    if (this.quiverMesh) this.quiverMesh.setEnabled(WEAPONS[key].type === 'ranged');
+    for (const [k, mesh] of Object.entries(this.weaponMeshes || {})) {
+      mesh.setEnabled(k === key && !props[k]);
     }
     return true;
   }
@@ -389,6 +478,8 @@ export class Player {
 
     // 결계 버프: 받는 피해 추가 감소
     if (this.wardT > 0) amount *= this.wardMul;
+    // 금강불괴: 물리 피해를 크게 줄인다 (술법 피해는 그대로 — REFERENCE.md §3 규칙 3)
+    if (this.ironT > 0) amount *= this.ironMul;
     // 체력(VIT) 스탯: 받는 피해 감소 (최소 1)
     amount = Math.max(1, Math.round(amount * damageTakenMul()));
     this.hp = Math.max(0, this.hp - amount);
@@ -400,6 +491,12 @@ export class Player {
       flashHurt();
       shake(0.28, 0.2);
       sfx.hurt();
+      // 피격 모션은 두 가지를 번갈아 — 한 종류만 쓰면 연타에서 티가 난다
+      if (this.lockTimer <= 0 && this.dodgeT <= 0) {
+        this.play(Math.random() < 0.5 ? 'hit' : 'hitB', true, 1.5);
+        this.lockTimer = Math.max(this.lockTimer, 0.22);
+        this.actionT = 0;
+      }
     }
     if (dir) {
       this.knockV.copyFromFloats(dir.x, 0, dir.z);
@@ -430,8 +527,10 @@ export class Player {
     this.spellCdMax = this.spellCdMax || {};
     this.spellCdMax[s.key] = s.cd;
     setMP(Math.round(this.mp), this.maxMp);
+    // 법장처럼 술법을 밀어주는 무기를 들고 있으면 그만큼 세진다
+    const heldMul = (WEAPONS[this.weapon] && WEAPONS[this.weapon].magicMul) || 1;
     const damage = Math.round((s.baseDamage + stats.level * s.perLevel)
-      * this.charCfg.magicMul * magicDamageMul());
+      * this.charCfg.magicMul * magicDamageMul() * heldMul);
 
     // 유성우·시우 — 지정 지점에 여러 번 떨어진다. 이동추종 없음 + 고코스트로 제약
     if (s.kind === 'rain') {
@@ -442,7 +541,7 @@ export class Player {
       const gx = this.group.position.x + dx0 * k0;
       const gz = this.group.position.z + dz0 * k0;
       this.group.rotation.y = Math.atan2(dx0, dz0);
-      this.play('cast', true, 1.6);
+      this.play(castClipOf(s), true, 1.6);
       this.lockTimer = 0.45;
       sfx.shoot();
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, gx, gz,
@@ -557,10 +656,12 @@ export class Player {
                               : h.m.takeDamage(dd, hdir, s.knock, 0));
         this.popDamage(h.m, dd, true);
         if (s.slowDuration) { h.m.slowT = s.slowDuration; h.m.slowMul = s.slowMul; }
+        if (s.stunDuration) h.m.stunT = Math.max(h.m.stunT || 0, s.stunDuration);
         if (this.onKill && killed) this.onKill(h.m);
         if (this.vfx) {
           this.vfx.burst(h.m.group.position, { size: 1.5, color: s.color, dur: 0.26 });
           if (s.fx === 'snare') this.vfx.snare(h.m.group.position, { radius: 1.9, color: s.color });
+          if (s.fx === 'seal') this.vfx.seal(h.m.group.position, { color: s.color });
         }
         dmg *= s.falloff;
       }
@@ -601,13 +702,15 @@ export class Player {
 
     // 결계 — 자기 버프. 오라를 두르고 지속 동안 받는 피해를 줄인다
     if (s.kind === 'buff') {
-      this.play('cast', true, 1.5);
+      this.play(castClipOf(s), true, 1.5);
       this.lockTimer = 0.4;
       sfx.levelup();
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
         z: this.group.position.z, r: this.group.rotation.y });
       if (s.damageTakenMul) { this.wardT = s.duration; this.wardMul = s.damageTakenMul; }
       if (s.damageBonus) { this.dmgBuffT = s.duration; this.dmgBuffMul = 1 + s.damageBonus; }
+      // 금강불괴 — 물리 피해를 크게 줄이고 밀려나지도 않는다
+      if (s.physMul) { this.ironT = s.duration; this.ironMul = s.physMul; this.ironNoKnock = !!s.noKnock; }
       if (this.vfx) {
         this.wardAura = this.vfx.aura(this.group, { radius: 1.5, color: s.color, dur: s.duration });
         if (s.fx === 'cry') {
@@ -619,9 +722,75 @@ export class Player {
       return true;
     }
 
+    // 치유술 — 술법 스탯을 타지 않는다 (REFERENCE.md §3 규칙 6).
+    // 누가 들어도 같은 양이 회복돼야 파티에서 역할이 나뉜다
+    if (s.kind === 'heal') {
+      this.play(castClipOf(s), true, 1.4);
+      this.lockTimer = 0.5;
+      sfx.levelup();
+      const amount = Math.round(s.healFlat + stats.level * s.healPerLevel);
+      const before = this.hp;
+      this.hp = Math.min(this.maxHp, this.hp + amount);
+      setHP(this.hp, this.maxHp);
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
+        z: this.group.position.z, r: this.group.rotation.y });
+      if (this.vfx) this.vfx.heal(this.group, { color: s.color });
+      this.popDamage(this, this.hp - before, false);
+      return true;
+    }
+
+    // 화벽술 — 몸을 두른 불길이 따라다니며 주기적으로 태운다
+    if (s.kind === 'aurafield') {
+      this.play(castClipOf(s), true, 1.5);
+      this.lockTimer = 0.4;
+      sfx.levelup();
+      if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
+        z: this.group.position.z, r: this.group.rotation.y });
+      this.auraField = {
+        radius: s.radius, damage, knock: s.knock, color: s.color,
+        left: s.duration, interval: s.tickInterval, t: 0
+      };
+      if (this.vfx) {
+        this.auraFieldFx = this.vfx.aura(this.group,
+          { radius: s.radius * 0.55, color: s.color, dur: s.duration });
+        this.vfx.circle(this.group.position, { radius: s.radius, color: s.color, dur: 1.2 });
+      }
+      return true;
+    }
+
+    // 정령시 — 스스로 적을 쫓는 화살. 여러 발을 조금씩 벌려 놓는다
+    if (s.kind === 'homing') {
+      this.group.rotation.y = Math.atan2(
+        point.x - this.group.position.x, point.z - this.group.position.z
+      );
+      this.play(castClipOf(s), true, 1.6);
+      this.lockTimer = 0.32;
+      sfx.shoot();
+      const n = s.count || 1;
+      for (let i = 0; i < n; i++) {
+        const a = this.group.rotation.y + (i - (n - 1) / 2) * 0.28;
+        const dx = Math.sin(a);
+        const dz = Math.cos(a);
+        const origin = this.group.position.clone();
+        origin.y += 1.15;
+        origin.x += dx * 0.6;
+        origin.z += dz * 0.6;
+        if (this.projectiles) {
+          this.projectiles.spawn(origin, new Vector3(dx, 0, dz), damage, s.knock,
+            s.color, 'bolt', false,
+            { homing: s.homing, speedMul: s.speedMul, lifeMul: s.lifeMul, hitR: s.hitR });
+        }
+        if (this.onAction) this.onAction({ t: 'bolt', ox: origin.x, oy: origin.y, oz: origin.z,
+          dx, dz, c: s.color, x: this.group.position.x, z: this.group.position.z,
+          r: this.group.rotation.y });
+      }
+      if (this.vfx) this.vfx.spiritCall(this.group.position, { color: s.color });
+      return true;
+    }
+
     // 빙백진 — 자기중심 폭발. 주변을 얼려 밀쳐낸다
     if (s.kind === 'nova') {
-      this.play('cast', true, 1.7);
+      this.play(castClipOf(s), true, 1.7);
       this.lockTimer = 0.4;
       sfx.punchHeavy();
       shake(0.3, 0.24);
@@ -633,6 +802,8 @@ export class Player {
           this.vfx.whirl(origin, { radius: s.radius, color: s.color });
         } else if (s.fx === 'quake') {
           this.vfx.quake(origin, { radius: s.radius, color: s.color });
+        } else if (s.fx === 'stone') {
+          this.vfx.stoneField(origin, { radius: s.radius, color: s.color });
         } else {
           this.vfx.frostNova(origin, { radius: s.radius, color: s.color });
           this.vfx.frostSpikes(origin, s.radius, s.color);
@@ -652,6 +823,8 @@ export class Player {
         this.popDamage(m, damage, true);
         m.slowT = s.slowDuration;
         m.slowMul = s.slowMul;
+        // 석화 — 굳어서 한동안 아무것도 못 한다
+        if (s.stunDuration) m.stunT = Math.max(m.stunT || 0, s.stunDuration);
         if (this.onKill && killed) this.onKill(m);
         if (this.vfx) this.vfx.burst(m.group.position, { size: 1.4, color: s.color, dur: 0.28 });
       }
@@ -660,7 +833,7 @@ export class Player {
 
     // 귀뢰 — 가장 가까운 적에서 시작해 인접한 적으로 번개가 튄다
     if (s.kind === 'chain') {
-      this.play('cast', true, 1.8);
+      this.play(castClipOf(s), true, 1.8);
       this.lockTimer = 0.35;
       sfx.shoot();
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, x: this.group.position.x,
@@ -718,7 +891,7 @@ export class Player {
       const gx = this.group.position.x + dx * k;
       const gz = this.group.position.z + dz * k;
       this.group.rotation.y = Math.atan2(dx, dz);
-      this.play('cast', true, 1.6);
+      this.play(castClipOf(s), true, 1.6);
       this.lockTimer = 0.45;
       sfx.shoot();
       if (this.onAction) this.onAction({ t: 'spell', k: s.key, gx, gz,
@@ -747,7 +920,7 @@ export class Player {
       Math.cos(this.group.rotation.y)
     );
 
-    this.play('cast', true, 1.8);
+    this.play(castClipOf(s), true, 1.8);
     this.lockTimer = 0.35;
     this.currentLunge = 0;
     this.lungeUntil = 0;
@@ -768,6 +941,42 @@ export class Player {
     }
     this.projectiles.spawn(origin, face.clone(), damage, s.knock, s.color);
     return true;
+  }
+
+  // 화벽술 — 몸을 두른 불길. 시전자를 따라다니며 주기적으로 주변을 태운다
+  updateAuraField(delta, monsters, onHit) {
+    const f = this.auraField;
+    if (!f) return;
+    f.left -= delta;
+    if (f.left <= 0) {
+      this.auraField = null;
+      this.auraFieldFx = null;   // VFX는 수명이 끝나면 스스로 회수된다
+      return;
+    }
+    f.t -= delta;
+    if (f.t > 0) return;
+    f.t = f.interval;
+    const origin = this.group.position;
+    if (this.vfx) {
+      this.vfx.flare(origin, { key: 'flame', size: f.radius * 0.7, color: f.color,
+        dur: f.interval * 1.4, grow: 1.3, y: 0.8 });
+    }
+    for (const m of monsters) {
+      if (m.dead) continue;
+      const dx = m.group.position.x - origin.x;
+      const dz = m.group.position.z - origin.z;
+      if (dx * dx + dz * dz > f.radius * f.radius) continue;
+      const d = Math.max(0.001, Math.hypot(dx, dz));
+      const dir = { x: dx / d, z: dz / d };
+      const relayed = this.reportDamage && this.reportDamage(m, f.damage, dir, f.knock, 0);
+      const killed = relayed ? false
+        : (this.applyDamage ? this.applyDamage(m, f.damage, dir, f.knock, 0)
+                            : m.takeDamage(f.damage, dir, f.knock, 0));
+      this.popDamage(m, f.damage, false);
+      if (this.vfx) this.vfx.burst(m.group.position, { size: 1.1, color: f.color, dur: 0.2 });
+      if (onHit) onHit(m, killed);
+      if (this.onKill && killed) this.onKill(m);
+    }
   }
 
   // 유성우·시우 — 예고된 지점에 순차로 떨어진다
@@ -848,8 +1057,10 @@ export class Player {
   }
 
   tryAttack(input, monsters, camRig = null, facePoint = null) {
-    if (this.attackCd > 0 || this.blocking || this.dodgeT > 0) return;
+    if (this.attackCd > 0 || this.dodgeT > 0) return;
     if (!input.consumeAttack()) return;
+    // 방어 중 공격 = 방패 밀치기. 피해는 적지만 크게 밀어내고 자세는 유지된다
+    if (this.blocking) return this._shieldBash(monsters, facePoint);
 
     const w = applyWeaponSkills(WEAPONS[this.weapon], this.weapon, stats.skills);
     const aspd = attackSpeedMul(); // 민첩: 공격 속도
@@ -874,12 +1085,16 @@ export class Player {
       // 석궁 장전 숙련 — 레벨이 낮으면 느리게, 오를수록 빨라진다
       const reloadMul = Math.max(0.55, Math.min(1.9, 1.9 - stats.level * 0.09));
       this.attackCd = (w.cd * reloadMul) / aspd;
-      this.play('shoot', true, w.animScale / reloadMul);
+      // 석궁은 쏘는 자세, 표창은 던지는 자세
+      this.play(w.shootKey || 'shoot', true, w.animScale / reloadMul);
       this.lockTimer = 0.14 * reloadMul;
+      // 쏜 뒤 남은 쿨다운 동안 장전 동작을 보여준다
+      this.reloadT = Math.max(0, this.attackCd - this.lockTimer);
       this.currentLunge = 0;
       this.lungeUntil = 0;
       sfx.shoot();
       if (this.projectiles) {
+        const color = w.projColor || '#ffd666';
         const origin = this.group.position.clone();
         origin.y += 1.15;
         origin.x += face.x * 0.6;
@@ -887,11 +1102,11 @@ export class Player {
         this.projectiles.spawn(
           origin, face.clone(),
           Math.round(weaponDamage(w.damage, this.weapon) * this._dmgMul(this.weapon)),
-          w.knock, '#ffd666', w.projectile || 'bolt'
+          w.knock, color, w.projectile || 'bolt'
         );
         if (this.vfx) {
-          this.vfx.burst(origin, { size: 0.9, color: '#ffd666', dur: 0.16 });
-          this.vfx.sparks(origin, { count: 6, color: '#ffe9a8', power: 3, size: 0.16 });
+          this.vfx.burst(origin, { size: 0.9, color, dur: 0.16 });
+          this.vfx.sparks(origin, { count: 6, color, power: 3, size: 0.16 });
         }
         if (this.onAction) this.onAction({ t: 'shot', ox: origin.x, oy: origin.y, oz: origin.z,
           dx: face.x, dz: face.z, k: w.projectile || 'bolt',
@@ -899,7 +1114,7 @@ export class Player {
       }
       this.knockV.x -= face.x * 0.9;
       this.knockV.z -= face.z * 0.9;
-    } else if (this.weapon === 'punch') {
+    } else if (w.combo === 'punch') {
       const step = this.comboTimer > 0 ? (this.comboStep + 1) % PUNCH_COMBO.length : 0;
       const st = PUNCH_COMBO[step];
       this.comboStep = step;
@@ -931,13 +1146,14 @@ export class Player {
       if (step === FINISHER_STEP) sfx.punchHeavy();
       else sfx.punch();
     } else {
-      // 퇴마검 2단 연계: 찌르기 → 가로베기
-      const step = this.comboTimer > 0 ? (this.comboStep + 1) % SWORD_COMBO.length : 0;
-      const st = SWORD_COMBO[step];
+      // 무기별 2단 연계 — 퇴마검은 찌르기 → 가로베기, 대도는 내려찍기 → 휘돌려베기
+      const table = COMBOS[w.combo] || SWORD_COMBO;
+      const step = this.comboTimer > 0 ? (this.comboStep + 1) % table.length : 0;
+      const st = table[step];
       this.comboStep = step;
       this.comboTimer = COMBO_WINDOW;
       this.pendingComboStep = step;
-      this.pendingIsFinisher = step === SWORD_FINISHER;
+      this.pendingIsFinisher = step === table.length - 1;
 
       const a = st.anim;
       const fromFrac = a.fromFrac || 0;
@@ -975,6 +1191,36 @@ export class Player {
   }
 
   // 몬스터 머리 위 화면 좌표에 피해 숫자를 띄운다
+  /** 방패 밀치기 — 방어를 풀지 않고 앞의 적을 밀어낸다 */
+  _shieldBash(monsters, facePoint = null) {
+    if (facePoint) {
+      this.group.rotation.y = Math.atan2(
+        facePoint.x - this.group.position.x, facePoint.z - this.group.position.z
+      );
+    }
+    const w = WEAPONS[this.weapon];
+    this.attackCd = 0.75;
+    this.lockTimer = Math.min(0.45, this._clipLen('blockAttack') / 1.5);
+    this.currentLunge = 3.0;
+    this.lungeUntil = this.lockTimer - 0.2;
+    this.play('blockAttack', true, 1.5);
+    sfx.punch();
+    if (this.onAction) this.onAction({ t: 'atk', k: this.clipMap.blockAttack, s: 1.5,
+      f: 0, o: 1, x: this.group.position.x, z: this.group.position.z,
+      r: this.group.rotation.y, w: this.weapon });
+    // 판정은 일반 공격과 같은 지연 히트를 쓰되, 피해 대신 넉백을 준다
+    this.pendingHit = 0.16;
+    this.pendingList = monsters;
+    this.pendingComboStep = -1;
+    this.pendingIsFinisher = false;
+    this.pendingWeaponKey = this.weapon;
+    this.pendingWeapon = {
+      ...w, damage: Math.max(4, Math.round(w.damage * 0.35)),
+      range: 2.6, arcDot: 0.35, knock: 28, knockUp: 3
+    };
+    return true;
+  }
+
   popDamage(monster, amount, crit = false) {
     const scene = this.scene;
     const cam = scene.activeCameras && scene.activeCameras[0];
@@ -1001,9 +1247,8 @@ export class Player {
       Math.cos(this.group.rotation.y)
     );
     const wKeyNow = this.pendingWeaponKey || this.weapon;
-    const finisherHit =
-      (wKeyNow === 'punch' && this.pendingComboStep === FINISHER_STEP) ||
-      (wKeyNow === 'sword' && this.pendingComboStep === SWORD_FINISHER);
+    const finisherHit = this.pendingIsFinisher
+      && (WEAPONS[wKeyNow] ? WEAPONS[wKeyNow].type !== 'ranged' : false);
     let hitAny = false;
     for (const m of monsters) {
       if (m.dead) continue;
@@ -1043,15 +1288,12 @@ export class Player {
     }
     if (hitAny) {
       const key = this.pendingWeaponKey || this.weapon;
-      const isPunch = key === 'punch';
-      const isSword = key === 'sword';
-      const finisher =
-        (isPunch && this.pendingComboStep === FINISHER_STEP) ||
-        (isSword && this.pendingComboStep === SWORD_FINISHER);
+      const wCfg = WEAPONS[key];
+      const finisher = !!this.pendingIsFinisher && wCfg && wCfg.type !== 'ranged';
       hitstop(finisher ? 0.09 : 0.05);
       if (finisher) shake(0.22, 0.18);
-      if (isPunch || isSword) {
-        showCombo(this.pendingComboStep + 1, finisher, isPunch ? '붕권' : '가로베기');
+      if (wCfg && wCfg.type !== 'ranged') {
+        showCombo(this.pendingComboStep + 1, finisher, FINISH_NAME[key] || '마무리');
       }
     }
   }
@@ -1086,6 +1328,7 @@ export class Player {
     }
 
     const moving = dir.lengthSquared() > 0;
+    this.moving = moving;   // 줍기 같은 단발 동작이 걸음을 끊지 않도록 참고한다
     // 기력이 있어야 달릴 수 있다. 바닥나면 잠시 달리기가 잠긴다
     const wantRun = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
     const running = wantRun && moving && this.exhaustT <= 0 && this.stamina > 0;
@@ -1127,7 +1370,8 @@ export class Player {
       );
       if (this.lockTimer > 0) move.scaleInPlace(0.45);
 
-      if (this.lockTimer <= 0) {
+      // 방어 중에는 시선을 고정한다 — 방패를 든 채 옆으로 도는 움직임이 성립한다
+      if (this.lockTimer <= 0 && !this.blocking) {
         const target = Math.atan2(dir.x, dir.z);
         let diff = target - this.group.rotation.y;
         diff = Math.atan2(Math.sin(diff), Math.cos(diff));
@@ -1145,6 +1389,8 @@ export class Player {
       move.z += face.z * this.currentLunge * delta;
     }
 
+    // 금강불괴 중에는 밀려나지 않는다
+    if (this.ironT > 0 && this.ironNoKnock) this.knockV.setAll(0);
     if (this.knockV.lengthSquared() > 0.02) {
       move.x += this.knockV.x * delta;
       move.z += this.knockV.z * delta;
@@ -1174,6 +1420,9 @@ export class Player {
     this.attackCd = Math.max(0, this.attackCd - delta);
     this.magicCd = Math.max(0, this.magicCd - delta);
     this.dodgeCd = Math.max(0, this.dodgeCd - delta);
+    this.reloadT = Math.max(0, this.reloadT - delta);
+    this.actionT = Math.max(0, this.actionT - delta);
+    this.actionCd = Math.max(0, this.actionCd - delta);
     this.iframe = Math.max(0, this.iframe - delta);
     this.exhaustT = Math.max(0, this.exhaustT - delta);
     // 잠깐 쉬면 기력이 차오른다
@@ -1195,6 +1444,7 @@ export class Player {
     }
     if (this.dmgBuffT > 0) this.dmgBuffT -= delta;
     if (this.hasteT > 0) this.hasteT -= delta;
+    if (this.ironT > 0) this.ironT -= delta;
     if (this.mp < this.maxMp) {
       this.mp = Math.min(this.maxMp, this.mp + this.charCfg.mpRegen * delta);
       setMP(Math.round(this.mp), this.maxMp);
@@ -1205,22 +1455,40 @@ export class Player {
       if (this.comboTimer <= 0) this.comboStep = -1;
     }
 
-    if (this.groups && this.onGround && this.lockTimer <= 0 && this.dodgeT <= 0) {
-      if (this.blocking) this.play('block');
-      else if (moving && running) this.play('run');
-      else if (moving) this.play('walk');
-      else this.play('idle');
+    if (this.groups && this.onGround && this.lockTimer <= 0 && this.dodgeT <= 0
+        && this.actionT <= 0) {
+      const wCfg = WEAPONS[this.weapon];
+      if (moving) {
+        // 바라보는 쪽과 가는 쪽이 어긋나면 옆걸음·뒷걸음으로 걷는다.
+        // 방어 중에는 시선을 고정하므로 여기서 티가 난다.
+        const rel = Math.atan2(dir.x, dir.z) - this.group.rotation.y;
+        const a = Math.atan2(Math.sin(rel), Math.cos(rel));
+        if (a > 2.2 || a < -2.2) this.play('walkBack');
+        else if (a > 0.9) this.play('strafeR');
+        else if (a < -0.9) this.play('strafeL');
+        else if (running) this.play('run');
+        else this.play('walk');
+      } else if (this.blocking) {
+        this.play('block');
+      } else if (this.reloadT > 0) {
+        this.play('reload');
+      } else {
+        this.play((wCfg && wCfg.idleKey) || 'idle');
+      }
     }
     this._updateTrail(delta);
   }
 
-  // 칼날의 뿌리·끝 월드 좌표를 매 프레임 궤적에 기록
+  // 칼날의 뿌리·끝 월드 좌표를 매 프레임 궤적에 기록 — 지금 든 근접 무기를 따라간다
   _updateTrail(delta) {
-    const sword = this.weaponMeshes && this.weaponMeshes.sword;
-    if (sword && sword.isEnabled() && this.trail.life > 0) {
-      const m = sword.getWorldMatrix();
-      Vector3.TransformCoordinatesFromFloatsToRef(0, 0.25, 0, m, this._baseTmp);
-      Vector3.TransformCoordinatesFromFloatsToRef(0, SWORD_TIP_Y, 0, m, this._tipTmp);
+    const cfg = WEAPONS[this.weapon];
+    const blade = cfg && cfg.type !== 'ranged'
+      && this.weaponMeshes && this.weaponMeshes[this.weapon];
+    if (blade && blade.isEnabled() && this.trail.life > 0) {
+      const tipY = (cfg.kit && cfg.kit.height) || SWORD_TIP_Y;
+      const m = blade.getWorldMatrix();
+      Vector3.TransformCoordinatesFromFloatsToRef(0, tipY * 0.15, 0, m, this._baseTmp);
+      Vector3.TransformCoordinatesFromFloatsToRef(0, tipY, 0, m, this._tipTmp);
       this.trail.emit(this._baseTmp, this._tipTmp);
     }
     this.trail.update(delta);
