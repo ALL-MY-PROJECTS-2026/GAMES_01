@@ -7,7 +7,7 @@ import { findSkill, totalSpent } from './skills.js';
 
 const SAVE_KEY = 'windkingdom-save-v1';
 // 세이브 스키마 버전 (STACK.md §12) — 형식이 바뀌면 올리고 migrate()에 변환을 추가한다
-const SAVE_VERSION = 6;
+const SAVE_VERSION = 7;
 export const MAX_UPGRADE = 5;
 export const JELLY_PRICE = 5;
 export const STAT_POINTS_PER_LEVEL = 3;
@@ -32,6 +32,7 @@ export const stats = {
   zone: 'grassland',        // 마지막으로 있던 구역
   zonesSeen: { grassland: true },
   sealed: {},               // 구역별로 봉인한 균열 id 목록
+  quest: { chapter: 1, step: 0, progress: 0 },   // 장 진행 (quest.js)
   upgrades: { punch: 0, sword: 0, gun: 0 },
   skillPoints: 0,
   skills: {},
@@ -74,6 +75,7 @@ export function save() {
       zone: stats.zone,
       zonesSeen: { ...stats.zonesSeen },
       sealed: { ...stats.sealed },
+      quest: { ...stats.quest },
       upgrades: stats.upgrades,
       skillPoints: stats.skillPoints,
       skills: stats.skills,
@@ -109,6 +111,10 @@ function migrate(data) {
   if (v < 6) {
     // v5: 귀문 균열이 없던 시절 → 봉인한 것 없음
     data.sealed = {};
+  }
+  if (v < 7) {
+    // v6: 장 진행이 없던 시절 → 1장 처음부터
+    data.quest = { chapter: 1, step: 0, progress: 0 };
   }
   data.version = SAVE_VERSION;
   return data;
@@ -223,6 +229,7 @@ export function bindPlayer(player) {
     Object.assign(stats.zonesSeen, data.zonesSeen || { grassland: true });
     for (const k of Object.keys(stats.sealed)) delete stats.sealed[k];
     Object.assign(stats.sealed, data.sealed || {});
+    stats.quest = { ...{ chapter: 1, step: 0, progress: 0 }, ...(data.quest || {}) };
     Object.assign(stats.upgrades, data.upgrades || {});
     stats.skills = data.skills || {};
     // 구버전 세이브: 지나간 레벨업만큼 포인트 소급 지급

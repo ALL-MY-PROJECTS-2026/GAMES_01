@@ -42,6 +42,8 @@ export const ZONES = {
       { to: 'forest', x: 78, z: 0, needLevel: 8, label: '안개 삼림',
         arrive: { x: -70, z: 0 } }
     ],
+    // 결계석 (SCENARIO.md §4 1장) — 도깨비 무리 한복판. 혼백을 바쳐 되살린다
+    wardStone: { x: -34, z: 44 },
     // 귀문 균열 (REFERENCE.md §5) — 마물이 스며 나오는 구멍.
     // 균열마다 소환 종류·속도·동시 상한·레벨을 따로 준다. 봉인하면 그 구멍은 멎는다.
     rifts: [

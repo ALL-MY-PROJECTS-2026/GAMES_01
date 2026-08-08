@@ -189,6 +189,24 @@ export function showToast(text, color = '#ffd666') {
   while (layer.children.length > 5) layer.removeChild(layer.firstChild);
 }
 
+/** 장 진행 추적기 — 지금 무엇을 해야 하는지 늘 띄워 둔다 */
+export function setQuest(info) {
+  const el = document.getElementById('quest');
+  if (!el) return;
+  if (!info || !info.step) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  const { chapter, step, progress } = info;
+  document.getElementById('quest-chapter').textContent = chapter.title;
+  document.getElementById('quest-step').textContent = step.text;
+  document.getElementById('quest-fill').style.width =
+    `${Math.min(100, (progress / step.goal) * 100)}%`;
+  document.getElementById('quest-count').textContent = `${progress} / ${step.goal}`;
+  document.getElementById('quest-hint').textContent = step.hint || '';
+}
+
 export function setAutoHunt(on) {
   const el = document.getElementById('autohunt');
   if (el) el.classList.toggle('on', on);

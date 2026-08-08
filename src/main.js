@@ -24,7 +24,7 @@ import { MeshBuilder, StandardMaterial, Color3 } from '@babylonjs/core';
 import { Minimap } from './ui/minimap.js';
 import {
   initHUD, setMP, setHP, toggleInventory, setActiveWeapon, setPlayerIdentity, setBossBar,
-  showPickup, setAutoHunt, showToast
+  showPickup, setAutoHunt, showToast, setQuest
 } from './ui/hud.js';
 import { sfx, initAudio } from './core/sfx.js';
 import { juice, hitstop, shake } from './core/juice.js';
@@ -34,6 +34,10 @@ import {
   initSpellBar, getSelectedSpell, setSpellCooldown, setSpellAffordable, selectSpellByIndex
 } from './ui/spellbar.js';
 import { SPELLS, SPELL_ORDER, castClipOf } from './core/spells.js';
+import {
+  currentStep, currentChapter, questProgress, isChapterDone,
+  onKillFor, onSeal, onOffer, offerNeeded
+} from './core/quest.js';
 import { net } from './net/net.js';
 import { GhostManager } from './net/ghosts.js';
 import { initInventory, addItem, renderInventory } from './ui/inventory.js';
@@ -179,6 +183,103 @@ async function boot() {
       dur: 1.4, grow: 1.2, y: 1.2 });
     showToast(`귀문 균열을 봉인했습니다 — 경험치 +${xp}`, '#b06cff');
     markSealed(zone.key, rift.id);
+    announceQuest(onSeal());
+  }
+
+  // ── 결계석 ────────────────────────────────────────────────
+  // 1장의 목표물 (SCENARIO.md §4). 혼백을 바쳐 되살린다
+  let wardMesh = null;
+  let wardMat = null;
+  function buildWard() {
+    if (wardMesh) { wardMesh.dispose(); wardMesh = null; }
+    const w = zone.wardStone;
+    if (!w) return;
+    wardMesh = MeshBuilder.CreateCylinder(
+      'wardStone', { diameterTop: 0.5, diameterBottom: 1.6, height: 3.4, tessellation: 6 }, scene
+    );
+    wardMat = new StandardMaterial('wardMat', scene);
+    wardMat.diffuseColor = Color3.FromHexString('#6a675e');
+    wardMat.specularColor = new Color3(0, 0, 0);
+    wardMesh.material = wardMat;
+    wardMesh.position.set(w.x, 1.7, w.z);
+    wardMesh.isPickable = false;
+    paintWard();
+  }
+  function paintWard() {
+    if (!wardMat) return;
+    // 아직 바칠 게 남았으면 어둡고, 되살아나면 타오른다
+    const lit = offerNeeded() === 0;
+    wardMat.emissiveColor = Color3.FromHexString(lit ? '#ffb03a' : '#2a2620');
+  }
+  buildWard();
+
+  /** 결계석 봉헌 — 가진 혼백 중 필요한 만큼만 바친다 */
+  function offerToWard() {
+    const need = offerNeeded();
+    if (need <= 0) return;
+    const give = Math.min(need, stats.items.jelly);
+    if (give <= 0) {
+      showToast('바칠 혼백이 없습니다', '#e24b4a');
+      return;
+    }
+    addJelly(-give);
+    player.playAction('interact');
+    sfx.pickup();
+    vfx.circle({ x: wardMesh.position.x, z: wardMesh.position.z },
+      { radius: 3, color: '#ffb03a', dur: 1.2 });
+    const res = onOffer(give);
+    paintWard();
+    if (res && !res.advanced) showToast(`결계석에 혼백 ${give}개를 바쳤습니다`, '#ffb03a');
+    else if (res) {
+      vfx.flare({ x: wardMesh.position.x, z: wardMesh.position.z },
+        { key: 'symbol', size: 6, color: '#ffb03a', dur: 1.6, grow: 1.3, y: 2 });
+      showToast('결계석이 타오릅니다', '#ffb03a');
+    }
+    announceQuest(res);
+  }
+
+  /**
+   * 청운은 지금 해야 할 일을 짚어 준다 — 대사가 진행도를 따라간다.
+   * 대사 데이터는 그대로 두고 첫 줄만 앞에 끼운다
+   */
+  function npcLines(npc) {
+    if (npc.role !== 'elder') return npc;
+    const step = currentStep();
+    const head = step
+      ? (step.hint || step.text)
+      : '초원의 귀문은 닫혔네. 이제 안개 삼림으로 가게.';
+    return { ...npc, lines: [head, ...npc.lines] };
+  }
+
+  /**
+   * 관문이 열렸는가 — 레벨과 장 진행을 둘 다 본다.
+   * 2장은 1장을 끝내야 들어갈 수 있다 (SCENARIO.md §4)
+   */
+  function portalOpen(exit) {
+    if (stats.level < exit.needLevel) return false;
+    if (exit.to === 'forest' && !isChapterDone(1)) return false;
+    return true;
+  }
+
+  /** 추적기를 다시 그린다 */
+  function refreshQuest() {
+    const q = questProgress();
+    setQuest(q.step ? { chapter: currentChapter(), step: q.step, progress: q.progress } : null);
+  }
+
+  /** 단계가 넘어갔을 때의 알림 — 장이 끝나면 크게 띄운다 */
+  function announceQuest(res) {
+    if (!res) return;
+    refreshQuest();
+    if (!res.advanced) return;
+    if (res.chapterDone) {
+      showToast('1장 완료 — 안개 삼림으로 가는 길이 열렸습니다', '#ffb03a');
+      pushChat(null, '결계석이 되살아났다. 초원의 귀문이 닫혔다.', 'system');
+      sfx.levelup();
+    } else {
+      showToast(`「${res.step.text}」 완료`, '#b06cff');
+      if (res.nextStep) pushChat(null, res.nextStep.hint || res.nextStep.text, 'system');
+    }
   }
 
   /** 구역을 갈아끼운다 — 씬은 그대로 두고 지형·몬스터·물리만 바꾼다 */
@@ -208,6 +309,8 @@ async function boot() {
     monsters.setProjectiles(projectiles);
     buildPortals();
     buildRifts();
+    buildWard();
+    refreshQuest();
 
     // 사당 마을(청운·소하)은 초원에만 있다
     for (const npc of npcs.list) npc.group.setEnabled(!!next.hasNpc);
@@ -315,6 +418,7 @@ async function boot() {
   });
   initAudio();
   bindPlayer(player);
+  refreshQuest();
   setMP(player.mp, player.maxMp);
 
   // 무기는 숫자키로 바꾸지 않는다 — 소지품(I)에서 눌러 장착한다
@@ -452,6 +556,7 @@ async function boot() {
 
   // 호스트(또는 싱글)에서 처치가 확정됐을 때
   function onMonsterKilled(mon) {
+    announceQuest(onKillFor(mon.typeKey));
     const sh = shares(mon);
     // 개체 스탯 — 같은 종이라도 존·거리에 따라 레벨이 달라 보상도 다르다
     const cfg = {
@@ -619,10 +724,8 @@ async function boot() {
         nearPortal = { ...p, dist };
       }
     }
-    if (nearPortal && nearPortal.dist < 2.0 && !switching) {
-      if (stats.level >= nearPortal.exit.needLevel) {
-        enterZone(nearPortal.exit.to, nearPortal.exit.arrive);
-      }
+    if (nearPortal && nearPortal.dist < 2.0 && !switching && portalOpen(nearPortal.exit)) {
+      enterZone(nearPortal.exit.to, nearPortal.exit.arrive);
     }
 
     // 균열 — 가까이 가면 봉인할 수 있다
@@ -634,16 +737,31 @@ async function boot() {
       if (dist < 5 && (!nearRift || dist < nearRift.dist)) nearRift = { ...r, dist };
     }
 
+    // 결계석 — 봉헌 단계일 때만 반응한다
+    let nearWard = false;
+    if (wardMesh) {
+      wardMesh.rotation.y += d * 0.25;
+      nearWard = Math.hypot(wardMesh.position.x - player.group.position.x,
+                            wardMesh.position.z - player.group.position.z) < 4.5;
+    }
+
     const nearNpc = npcs.nearest(player);
     if (input.consumeInteract()) {
       if (isShopOpen()) closeShop();
       else if (isDialogOpen()) advanceDialog();
+      else if (nearWard && offerNeeded() > 0) offerToWard();
       else if (nearRift && !nearRift.rift.sealed) sealRift(nearRift.rift);
       else if (nearNpc && nearNpc.role === 'merchant') { player.playAction('interact'); openShop(); }
-      else if (nearNpc) { player.playAction('interact'); openDialog(nearNpc); }
+      else if (nearNpc) { player.playAction('interact'); openDialog(npcLines(nearNpc)); }
     }
     const talking = isDialogOpen() || isShopOpen();
-    if (!talking && nearRift) {
+    if (!talking && nearWard) {
+      const need = offerNeeded();
+      talkHint.innerHTML = need > 0
+        ? `<b>E</b> 결계석에 혼백을 바친다 (남은 ${need}개 · 소지 ${stats.items.jelly})`
+        : `<b>결계석</b> — 다시 타오르고 있습니다`;
+      talkHint.style.display = 'block';
+    } else if (!talking && nearRift) {
       const rf = nearRift.rift;
       talkHint.innerHTML = rf.sealed
         ? `<b>봉인된 귀문 균열</b> — 더는 마물이 나오지 않습니다`
@@ -651,10 +769,12 @@ async function boot() {
       talkHint.style.display = 'block';
     } else if (!talking && nearPortal) {
       const ex = nearPortal.exit;
-      const ok = stats.level >= ex.needLevel;
+      const ok = portalOpen(ex);
       talkHint.innerHTML = ok
         ? `<b>${ex.label}</b>로 가는 관문 — 걸어 들어가세요`
-        : `<b>${ex.label}</b> — Lv.${ex.needLevel} 부터 들어갈 수 있습니다`;
+        : (stats.level < ex.needLevel
+            ? `<b>${ex.label}</b> — Lv.${ex.needLevel} 부터 들어갈 수 있습니다`
+            : `<b>${ex.label}</b> — 1장을 끝내야 열립니다`);
       talkHint.style.display = 'block';
     } else if (!talking && nearNpc) {
       const verb = nearNpc.role === 'merchant' ? '상점' : '대화하기';
