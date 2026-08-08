@@ -1171,15 +1171,22 @@ export class MonsterManager {
    * 존 하나의 몬스터를 세운다. 이전 존은 통째로 걷어낸다.
    * GLB는 파일당 한 번만 파싱하는 캐시에 남아 있으므로 다시 오갈 때 재파싱이 없다.
    */
-  load(zone, sealedIds = []) {
+  /**
+   * density는 개체 수 배율이다. 폰에서는 스킨드 메시가 프레임을 그대로 깎으므로
+   * 종류는 그대로 두고 마릿수만 줄인다 — 종류를 빼면 구역의 성격이 달라진다.
+   */
+  load(zone, sealedIds = [], density = 1) {
     this.dispose();
     this.zone = zone;
+    this.density = density;
     // 균열 상태는 매니저가 들고 있는다 (봉인은 저장되어 다음에도 유지된다)
     this.rifts = (zone.rifts || []).map((r) => ({ ...r, sealed: sealedIds.includes(r.id) }));
     // 스폰 순서가 곧 인덱스다 — 멀티 스냅샷이 인덱스 기반이라 양쪽이 같아야 한다
     for (const [type, n] of Object.entries(zone.spawns)) {
       if (!MONSTER_TYPES[type]) continue;
-      for (let i = 0; i < n; i++) {
+      // 보스는 줄이지 않는다 — 한 마리뿐인데 사라지면 장이 막힌다
+      const count = MONSTER_TYPES[type].isBoss ? n : Math.max(1, Math.round(n * density));
+      for (let i = 0; i < count; i++) {
         const m = new Monster(this.scene, this.shadow, type, zone, this.list.length);
         // 이 종류를 뿜는 균열에 나눠 붙인다. 없으면 예전처럼 링에 흩뿌린다
         const owners = this.rifts.filter((r) => r.types.includes(type));

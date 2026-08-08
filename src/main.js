@@ -1,5 +1,5 @@
 import { createScene } from './core/scene.js';
-import { Input } from './core/input.js';
+import { Input, isTouchDevice } from './core/input.js';
 import { initPhysics, addStaticWorld } from './core/physics.js';
 import { buildWorld } from './world/ground.js';
 import { zoneOf, SEAL_COST, sealReward } from './world/zones.js';
@@ -42,12 +42,18 @@ import { net } from './net/net.js';
 import { GhostManager } from './net/ghosts.js';
 import { initInventory, addItem, renderInventory } from './ui/inventory.js';
 import { initChat, isChatOpen, openChat, closeChat, pushChat, updateChat } from './ui/chat.js';
+import { initTouchControls } from './ui/touch.js';
 
 async function boot() {
   setLoadingTotal(5);
-  const { engine, scene, canvas, shadow } = createScene(document.getElementById('app'));
-  // 픽셀 비율 상한 (STACK.md §14) — 고DPI 화면에서 픽셀을 4배 그리는 낭비를 막는다
-  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+  const mobileFirst = isTouchDevice();
+  const { engine, scene, canvas, shadow } =
+    createScene(document.getElementById('app'), { mobile: mobileFirst });
+  // 픽셀 비율 상한 (STACK.md §14) — 고DPI 화면에서 픽셀을 4배 그리는 낭비를 막는다.
+  // 폰은 화면이 작아 1.5배면 충분하고, 그 위로는 프레임만 깎아 먹는다
+  const mobile = mobileFirst;
+  const dprCap = mobile ? 1.5 : 2;
+  engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, dprCap));
   const input = new Input(canvas);
 
   loadingStep('물리 엔진 준비 중…');
@@ -69,7 +75,9 @@ async function boot() {
   player.group.position.set(zone.start.x, 0, zone.start.z);
   loadingStep('원귀를 깨우는 중…');
   const monsters = new MonsterManager(scene, obstacles, shadow);
-  monsters.load(zone, sealedIn(zone.key));
+  // 폰에서는 마릿수를 줄인다 (종류는 그대로)
+  const density = mobile ? 0.55 : 1;
+  monsters.load(zone, sealedIn(zone.key), density);
   const npcs = new NPCManager(scene, obstacles, shadow);
   // 사당 마을(청운·소하)은 초원에만 있다
   for (const npc of npcs.list) npc.group.setEnabled(!!zone.hasNpc);
@@ -305,7 +313,7 @@ async function boot() {
     world = buildWorld(scene, shadow, next);
     obstacles.push(...world.obstacles);
     worldPhys = addStaticWorld(scene, world.ground, obstacles);
-    monsters.load(next, sealedIn(next.key));
+    monsters.load(next, sealedIn(next.key), density);
     monsters.setProjectiles(projectiles);
     buildPortals();
     buildRifts();
@@ -335,6 +343,18 @@ async function boot() {
       if (m.dead) continue;
       const d = Math.hypot(m.group.position.x - point.x, m.group.position.z - point.z);
       if (d < bd) { bd = d; best = m; }
+    }
+    return best;
+  }
+
+  /** 반경 안에서 가장 가까운 살아있는 몬스터 (터치 조작이 대신 조준해 준다) */
+  function nearestMonster(from, radius) {
+    let best = null;
+    let bd = radius;
+    for (const m of monsters.list) {
+      if (m.dead) continue;
+      const dd = Math.hypot(m.group.position.x - from.x, m.group.position.z - from.z);
+      if (dd < bd) { bd = dd; best = m; }
     }
     return best;
   }
@@ -416,6 +436,37 @@ async function boot() {
     renderInventory(player.weapon);
     sfx.pickup();
   });
+  // ── 터치 조작 ─────────────────────────────────────────────
+  // 마우스가 없는 기기에서만 띄운다. 데스크톱에서는 아예 만들지 않는다
+  let touchUI = null;
+  if (isTouchDevice()) {
+    touchUI = initTouchControls(input, {
+      onAttack: () => {
+        // 손가락으로 몬스터를 정확히 집기는 어렵다 — 가까운 놈을 알아서 잡는다
+        const t = nearestMonster(player.group.position, 14);
+        if (t) player.attackTarget = t;
+        input.queueAttack();
+      },
+      onSpell: () => {
+        const spell = getSelectedSpell();
+        const t = nearestMonster(player.group.position, 20);
+        if (t) {
+          player.attackTarget = t;
+          player.castMagic(t.group.position, spell);
+        } else {
+          // 적이 없으면 바라보는 쪽으로 날린다
+          const f = camRig.flatForward();
+          player.castMagic({
+            x: player.group.position.x + f.x * 8,
+            z: player.group.position.z + f.z * 8
+          }, spell);
+        }
+      },
+      onDodge: () => input.queueDodge(),
+      onInteract: () => input.queueInteract()
+    });
+  }
+
   initAudio();
   bindPlayer(player);
   refreshQuest();
@@ -782,6 +833,10 @@ async function boot() {
       talkHint.style.display = 'block';
     } else {
       talkHint.style.display = 'none';
+    }
+    // 터치: 상호작용 버튼은 쓸 데가 있을 때만 띄운다 (엄지 자리를 아낀다)
+    if (touchUI) {
+      touchUI.setInteractVisible(!!(nearWard || nearRift || nearNpc) && !talking);
     }
 
     // 자동 사냥: 대상이 없거나 죽었으면 가까운 적을 새로 고른다

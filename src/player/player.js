@@ -1314,10 +1314,15 @@ export class Player {
     Vector3.CrossToRef(fwd, UP, this._right);
     const right = this._right;
 
-    if (input.pressed('KeyW')) dir.addInPlace(fwd);
-    if (input.pressed('KeyS')) dir.subtractInPlace(fwd);
-    if (input.pressed('KeyD')) dir.addInPlace(right);
-    if (input.pressed('KeyA')) dir.subtractInPlace(right);
+    // WASD와 터치 조이스틱을 하나로 합쳐 받는다 (조이스틱은 기울인 만큼 0~1)
+    const ax = input.moveAxis();
+    if (ax.len > 0.06) {
+      dir.copyFromFloats(
+        fwd.x * ax.y + right.x * ax.x,
+        0,
+        fwd.z * ax.y + right.z * ax.x
+      );
+    }
 
     if (dir.lengthSquared() > 0) {
       this.moveTarget = null;
@@ -1334,8 +1339,9 @@ export class Player {
 
     const moving = dir.lengthSquared() > 0;
     this.moving = moving;   // 줍기 같은 단발 동작이 걸음을 끊지 않도록 참고한다
-    // 기력이 있어야 달릴 수 있다. 바닥나면 잠시 달리기가 잠긴다
-    const wantRun = input.pressed('ShiftLeft') || input.pressed('ShiftRight');
+    // 기력이 있어야 달릴 수 있다. 바닥나면 잠시 달리기가 잠긴다.
+    // 조이스틱은 끝까지 밀면 달린다 — 별도 버튼을 두면 엄지가 모자란다
+    const wantRun = input.pressed('ShiftLeft') || input.pressed('ShiftRight') || ax.len > 0.86;
     const running = wantRun && moving && this.exhaustT <= 0 && this.stamina > 0;
     if (running) {
       this.stamina = Math.max(0, this.stamina - RUN_DRAIN * delta);

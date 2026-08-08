@@ -49,18 +49,28 @@ export class Minimap {
     this.arrow.position.set(p.x, 40, p.z);
     this.arrow.rotation.set(Math.PI / 2, this.player.group.rotation.y, 0);
 
+    // 미니맵이 그려질 자리는 CSS가 정한다 — 화면 크기에 따라 프레임이 움직이므로
+    // 픽셀 값을 코드에 박아 두면 폰에서 렌더만 엉뚱한 데 남는다.
+    // DOM 프레임의 실제 위치를 그대로 뷰포트로 옮긴다.
     const w = this.engine.getRenderWidth();
     const h = this.engine.getRenderHeight();
-    if (w > 0 && h > 0) {
-      const scale = this.engine.getHardwareScalingLevel();
-      const cssW = w * scale;
-      const cssH = h * scale;
-      this.cam.viewport = new Viewport(
-        (cssW - MINIMAP_SIZE - 10) / cssW,
-        10 / cssH,
-        MINIMAP_SIZE / cssW,
-        MINIMAP_SIZE / cssH
-      );
+    if (w <= 0 || h <= 0) return;
+    const scale = this.engine.getHardwareScalingLevel();
+    const cssW = w * scale;
+    const cssH = h * scale;
+
+    const frame = this.frame || (this.frame = document.getElementById('minimap-frame'));
+    let left = cssW - MINIMAP_SIZE - 10;
+    let bottom = 10;
+    let size = MINIMAP_SIZE;
+    if (frame) {
+      const r = frame.getBoundingClientRect();
+      if (r.width > 0) {
+        left = r.left;
+        bottom = cssH - r.bottom;
+        size = r.width;
+      }
     }
+    this.cam.viewport = new Viewport(left / cssW, bottom / cssH, size / cssW, size / cssH);
   }
 }

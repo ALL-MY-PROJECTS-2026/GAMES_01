@@ -11,7 +11,7 @@ import {
 
 const SKY = new Color4(0.24, 0.27, 0.44, 1);
 
-export function createScene(container) {
+export function createScene(container, { mobile = false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.style.width = '100%';
   canvas.style.height = '100%';
@@ -41,11 +41,22 @@ export function createScene(container) {
   moon.autoCalcShadowZBounds = true;
   const sun = moon;
 
-  const shadow = new ShadowGenerator(2048, sun);
+  // 그림자 맵은 폰에서 가장 비싼 항목 중 하나다 — 절반으로 줄인다
+  const shadow = new ShadowGenerator(mobile ? 1024 : 2048, sun);
   shadow.usePercentageCloserFiltering = true;
   shadow.bias = 0.0006;
 
-  window.addEventListener('resize', () => engine.resize());
+  // 화면 크기가 바뀌면 렌더 버퍼도 따라가야 한다.
+  // 모바일은 resize만으로 부족하다 — 화면을 돌리거나 주소창이 접혔다 펴질 때
+  // resize가 늦게 오거나 아예 안 오는 브라우저가 있어 세 가지를 모두 듣는다.
+  let resizeT = null;
+  const relayout = () => {
+    if (resizeT) clearTimeout(resizeT);
+    resizeT = setTimeout(() => { engine.resize(); resizeT = null; }, 60);
+  };
+  window.addEventListener('resize', relayout);
+  window.addEventListener('orientationchange', relayout);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', relayout);
 
   return { engine, scene, canvas, shadow };
 }
